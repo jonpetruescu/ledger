@@ -28,10 +28,35 @@ async function api(path, opts = {}) {
   return res.json();
 }
 
+// iOS Safari doesn't reliably block background touch-scrolling just
+// because a <dialog> is open modally — pin the body in place for as long
+// as the dialog is, and restore the scroll position when it closes.
+function lockScrollWhileOpen(dlg) {
+  const scrollY = window.scrollY;
+  document.body.style.position = "fixed";
+  document.body.style.top = `-${scrollY}px`;
+  document.body.style.left = "0";
+  document.body.style.right = "0";
+  dlg.addEventListener(
+    "close",
+    () => {
+      document.body.style.position = "";
+      document.body.style.top = "";
+      document.body.style.left = "";
+      document.body.style.right = "";
+      window.scrollTo(0, scrollY);
+    },
+    { once: true }
+  );
+}
+
 function showLogin(msg = "") {
   $("pwErr").textContent = msg;
   const d = $("login");
-  if (!d.open) d.showModal();
+  if (!d.open) {
+    lockScrollWhileOpen(d);
+    d.showModal();
+  }
 }
 
 $("pwGo").onclick = async () => {
@@ -270,6 +295,7 @@ function openSplitModal(txId, cats, onDone) {
   dlg.innerHTML = '<div class="empty">Loading…</div>';
   document.body.appendChild(dlg);
   dlg.addEventListener("close", () => dlg.remove());
+  lockScrollWhileOpen(dlg);
   dlg.showModal();
 
   api(`/transactions/${txId}/splits`)
@@ -814,12 +840,12 @@ async function renderPlan() {
     let alloc = 0, incB = 0;
     for (const c of d.expense) alloc += edits[c.name] ?? (d.budget[c.name] || 0);
     for (const c of d.income) incB += edits[c.name] ?? (d.budget[c.name] || 0);
+    const unalloc = incB - alloc;
     footEl.innerHTML = `
-      <div style="display: flex; justify-content: space-between">
-        <span style="font-size: 13px; color: var(--muted)">Allocated</span>
-        <span class="mono" style="font-size: 14px">$${fmtInt(alloc)}${incB ? ` <span style="color: var(--faint)">of $${fmtInt(incB)}</span>` : ""}</span>
-      </div>
-      ${incB ? `<div style="display: flex; justify-content: space-between; font-size: 13px; color: var(--muted)"><span>Unallocated (to savings)</span><span class="mono" style="color: var(--green)">$${fmtInt(incB - alloc)}</span></div>` : ""}`;
+      <div style="display: flex; justify-content: space-between; align-items: baseline">
+        <span style="font-size: 13px; color: var(--muted)">Allocated/Unallocated</span>
+        <span class="mono" style="font-size: 14px">$${fmtInt(alloc)}/<span style="color: ${unalloc < 0 ? "var(--over)" : "var(--green)"}">$${fmtInt(unalloc)}</span></span>
+      </div>`;
   };
 
   const openEditModal = (c) => {
@@ -877,6 +903,7 @@ async function renderPlan() {
     row.appendChild(cancel);
     dlg.appendChild(row);
 
+    lockScrollWhileOpen(dlg);
     dlg.showModal();
     nameIn.focus();
   };
@@ -897,6 +924,7 @@ async function renderPlan() {
     input.inputMode = "numeric";
     input.value = cur ? fmtInt(cur) : "";
     input.placeholder = "0";
+    input.onfocus = () => input.select();
     const del = document.createElement("button");
     del.className = "step";
     del.textContent = "×";
