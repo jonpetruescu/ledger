@@ -153,6 +153,13 @@
     border: 1px solid var(--line2); border-radius: 6px; padding: 22px; width: min(90vw, 340px);
     background: var(--panel); color: var(--ink);
   }
+  /* Locking body scroll with position:fixed while a dialog is open (see
+     lockScrollWhileOpen) breaks the browser's default margin:auto centering
+     for <dialog> in some engines, so position it explicitly instead. The
+     full-screen split sheet has its own layout and is excluded. */
+  dialog:not(.splitdlg) {
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); margin: 0;
+  }
   dialog::backdrop { background: rgba(33, 29, 22, 0.4); }
   dialog input {
     width: 100%; padding: 11px; font-size: 16px; border: 1px solid var(--line2);
