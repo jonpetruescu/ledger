@@ -101,6 +101,14 @@ function fmtAmt(a) {
 function fmtInt(n) {
   return Math.round(n).toLocaleString("en-US");
 }
+// Like fmtInt, but keeps cents when the amount actually has them instead of
+// rounding them away — for budget amounts, which can be entered as decimals.
+function fmtAmount(n) {
+  const rounded = Math.round(n * 100) / 100;
+  return rounded % 1 === 0
+    ? rounded.toLocaleString("en-US")
+    : rounded.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
 
 function daysInfo() {
   const now = new Date();
@@ -880,7 +888,7 @@ async function renderPlan() {
     footEl.innerHTML = `
       <div style="display: flex; justify-content: space-between; align-items: baseline">
         <span style="font-size: 13px; color: var(--muted)">Allocated/Unallocated</span>
-        <span class="mono" style="font-size: 14px">$${fmtInt(alloc)}/<span style="color: ${unalloc < 0 ? "var(--over)" : "var(--green)"}">$${fmtInt(unalloc)}</span></span>
+        <span class="mono" style="font-size: 14px">$${fmtAmount(alloc)}/<span style="color: ${unalloc < 0 ? "var(--over)" : "var(--green)"}">$${fmtAmount(unalloc)}</span></span>
       </div>`;
   };
 
@@ -957,8 +965,8 @@ async function renderPlan() {
     const input = document.createElement("input");
     input.className = "amtin mono";
     input.type = "text";
-    input.inputMode = "numeric";
-    input.value = cur ? fmtInt(cur) : "";
+    input.inputMode = "decimal";
+    input.value = cur ? fmtAmount(cur) : "";
     input.placeholder = "0";
     input.onfocus = () => input.select();
     const del = document.createElement("button");
@@ -981,7 +989,7 @@ async function renderPlan() {
       }, 500);
     };
     input.oninput = () => {
-      const n = Number(input.value.replace(/[^0-9.]/g, "")) || 0;
+      const n = parseFloat(input.value.replace(/[^0-9.]/g, "")) || 0;
       edits[c.name] = n;
       updateSummary();
       scheduleSave(n);
