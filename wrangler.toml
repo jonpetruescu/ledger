@@ -1,0 +1,18 @@
+name = "ledger"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+
+[assets]
+directory = "./public"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "shoebox"
+database_id = "61e5ccba-bbe7-484f-b567-f67cf3c8a738"
+
+# Secrets (set these with `wrangler secret put NAME`, never commit them):
+#   PLAID_CLIENT_ID
+#   PLAID_SECRET
+#   APP_PASSWORD
+[vars]
+PLAID_ENV = "sandbox"

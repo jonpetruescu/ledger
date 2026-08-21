@@ -1,0 +1,4 @@
+# Copy to .dev.vars for local development (wrangler dev reads this file)
+PLAID_CLIENT_ID=your_client_id_from_plaid_dashboard
+PLAID_SECRET=your_sandbox_secret_from_plaid_dashboard
+APP_PASSWORD=pick_a_good_password

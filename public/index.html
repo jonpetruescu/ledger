@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Ledger</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#f8f5ee" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#191613" media="(prefers-color-scheme: dark)">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --bg: #f8f5ee; --panel: #fdfbf5; --panel2: #fdf6ef;
+    --ink: #211d16; --muted: #6f6759; --faint: #857c6b;
+    --line: #e7e0cf; --line2: #d8cfb9; --track: #e9e2d1;
+    --accent: #8a3b1e; --accent-ink: #f8f5ee;
+    --green: #3f6f4f; --green-bg: #f0f3ec; --green-line: #cfdac6;
+    --over: #a33b2a; --over-bg: #fbf1ec;
+    --btn: #211d16; --btn-ink: #f8f5ee;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #191613; --panel: #211d17; --panel2: #27211a;
+      --ink: #ede8dc; --muted: #a89f8f; --faint: #8a8172;
+      --line: #2e2921; --line2: #3a342a; --track: #322c23;
+      --accent: #cf7a50; --accent-ink: #191613;
+      --green: #8fb89c; --green-bg: #1f2620; --green-line: #35443a;
+      --over: #d4705c; --over-bg: #2b1f1b;
+      --btn: #ede8dc; --btn-ink: #191613;
+    }
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    font-family: system-ui, -apple-system, sans-serif;
+    background: var(--bg); color: var(--ink);
+    padding-top: env(safe-area-inset-top);
+    min-height: 100vh; display: flex; flex-direction: column;
+  }
+  button { font: inherit; color: inherit; background: none; border: none; padding: 0; text-align: inherit; }
+  a { color: var(--accent); }
+  .serif { font-family: 'Instrument Serif', Georgia, serif; font-weight: 400; }
+  .mono { font-family: 'IBM Plex Mono', ui-monospace, Menlo, monospace; font-variant-numeric: tabular-nums; }
+  .lbl { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--faint); }
+
+  header {
+    padding: 14px 20px 0; display: flex; align-items: baseline; gap: 12px;
+  }
+  header h1 { font-size: 30px; }
+  header h1 button { font: inherit; }
+  .month { margin-left: auto; display: flex; align-items: baseline; gap: 2px; }
+  .month button { padding: 4px 8px; color: var(--faint); font-size: 16px; }
+  .month .cur { font-size: 13px; color: var(--muted); border-bottom: 1px solid var(--line2); padding-bottom: 2px; }
+  .gearbtn { align-self: center; padding: 6px 0 6px 8px; color: var(--faint); }
+
+  main { flex: 1; padding: 4px 20px 96px; }
+  .screen-note { font-size: 12px; color: var(--faint); text-align: center; padding: 14px 0 4px; }
+
+  /* register rows */
+  .rrow { display: flex; align-items: baseline; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); width: 100%; }
+  .rrow .d { font-size: 11px; color: var(--faint); width: 44px; flex-shrink: 0; }
+  .rrow .who { flex: 1; min-width: 0; }
+  .rrow .who .m { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rrow .who .c { font-size: 12px; color: var(--accent); }
+  .rrow .amt { font-size: 14px; }
+  .amt.in { color: var(--green); }
+  .datehead { margin-top: 14px; }
+
+  /* cards */
+  .card { border: 1px solid var(--line2); border-radius: 4px; background: var(--panel); }
+  .filecard { padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; border-bottom: 1px solid var(--line); }
+  .filecard:last-child { border-bottom: none; }
+  .fc-top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+  .fc-top .m { font-size: 15px; font-weight: 600; }
+  .fc-meta { font-size: 12px; color: var(--muted); }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    border: 1px solid var(--line2); border-radius: 3px; padding: 9px 13px;
+    font-size: 13px; color: var(--ink); background: var(--panel);
+  }
+  .chip:active, .chip.sel { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  .rule { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); padding: 2px 0; }
+  .rule input { width: 16px; height: 16px; accent-color: var(--accent); }
+
+  .btn { text-align: center; background: var(--btn); color: var(--btn-ink); border-radius: 3px; padding: 12px 16px; font-size: 14px; font-weight: 600; }
+  .btn.ghost { background: var(--panel); color: var(--muted); border: 1px solid var(--line2); font-weight: 400; }
+  .btnrow { display: flex; gap: 10px; }
+  .btnrow .grow { flex: 1; }
+
+  /* budget bars */
+  .hero { border-top: 2px solid var(--ink); border-bottom: 1px solid var(--line2); padding: 14px 0; margin-top: 12px; }
+  .hero .big { font-size: 38px; }
+  .brow { display: flex; flex-direction: column; gap: 5px; padding: 9px 0; border-bottom: 1px solid var(--line); width: 100%; }
+  .btop { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .track { height: 6px; background: var(--track); border-radius: 4px; overflow: hidden; }
+  .fill { height: 100%; background: var(--accent); border-radius: 4px; }
+  .fill.overc { background: var(--over); }
+  .fill.done { background: var(--line2); }
+
+  /* plan rows */
+  .srow { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .srow .name { flex: 1; font-size: 14px; min-width: 0; }
+  .step { width: 34px; height: 38px; border: 1px solid var(--line2); border-radius: 3px; background: var(--panel); color: var(--muted); font-size: 18px; flex-shrink: 0; }
+  .amtin {
+    width: 88px; border: 1px solid var(--line2); border-radius: 3px; background: var(--panel);
+    padding: 9px 10px; font-size: 15px; text-align: right; color: var(--ink);
+  }
+  .amtin:focus { outline: none; border-color: var(--accent); }
+
+  /* envelopes */
+  .tray { display: flex; align-items: center; justify-content: space-between; background: var(--panel2); border: 1.5px solid var(--accent); border-radius: 4px; padding: 12px 14px; margin-top: 12px; }
+  .envgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
+  .env { border: 1px solid var(--line2); border-radius: 4px; background: var(--panel); padding: 12px 14px; display: flex; flex-direction: column; gap: 7px; position: relative; min-height: 44px; }
+  .env .tab { position: absolute; top: -1px; left: 12px; width: 34px; height: 5px; background: var(--line2); border-radius: 0 0 3px 3px; }
+  .env.overe { border-color: var(--over); background: var(--over-bg); }
+  .env.overe .tab { background: var(--over); }
+  .env .nm { font-size: 13px; font-weight: 600; }
+  .env .left { font-size: 20px; }
+  .env .sub { font-size: 11px; color: var(--faint); }
+
+  .banner { display: flex; align-items: center; gap: 10px; background: var(--green-bg); border: 1px solid var(--green-line); border-radius: 4px; padding: 12px 14px; margin-top: 12px; color: var(--green); font-size: 14px; }
+
+  /* settings */
+  .setrow { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 0; border-bottom: 1px solid var(--line); width: 100%; }
+  .opt { display: flex; flex-direction: column; gap: 4px; border: 1px solid var(--line2); border-radius: 4px; background: var(--panel); padding: 14px; flex: 1; }
+  .opt.sel { border-color: var(--accent); border-width: 1.5px; background: var(--panel2); }
+  .opt .t { font-size: 15px; font-weight: 600; }
+  .opt .s { font-size: 12px; color: var(--muted); }
+
+  /* bottom nav */
+  nav#tabbar {
+    position: fixed; left: 0; right: 0; bottom: 0;
+    display: flex; border-top: 1px solid var(--line2); background: var(--panel);
+    padding: 8px 0 calc(10px + env(safe-area-inset-bottom));
+  }
+  nav#tabbar button { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; color: var(--faint); font-size: 11px; padding: 4px 0; }
+  nav#tabbar button.on { color: var(--accent); font-weight: 600; }
+  nav#tabbar svg { display: block; }
+
+  .empty { text-align: center; color: var(--muted); padding: 48px 16px; font-size: 15px; }
+  dialog {
+    border: 1px solid var(--line2); border-radius: 6px; padding: 22px; width: min(90vw, 340px);
+    background: var(--panel); color: var(--ink);
+  }
+  dialog::backdrop { background: rgba(33, 29, 22, 0.4); }
+  dialog input {
+    width: 100%; padding: 11px; font-size: 16px; border: 1px solid var(--line2);
+    border-radius: 3px; background: var(--bg); color: var(--ink); margin: 12px 0;
+  }
+  .err { color: var(--over); font-size: 13px; min-height: 18px; }
+  .backlink { display: flex; align-items: center; gap: 8px; padding: 6px 0; color: var(--muted); font-size: 14px; }
+</style>
+</head>
+<body>
+<header>
+  <h1 class="serif"><button id="homeBtn">Ledger</button></h1>
+  <div class="month">
+    <button id="mPrev">‹</button>
+    <span class="cur mono" id="mCur">—</span>
+    <button id="mNext">›</button>
+  </div>
+  <button class="gearbtn" id="gear" aria-label="Settings">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M4 8h16M4 16h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="9" cy="8" r="2.4" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="15" cy="16" r="2.4" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
+  </button>
+</header>
+<main id="view"><div class="empty">Loading…</div></main>
+<nav id="tabbar"></nav>
+
+<dialog id="login">
+  <strong class="serif" style="font-size: 22px">Ledger</strong>
+  <input type="password" id="pw" autocomplete="current-password" placeholder="App password">
+  <div class="err" id="pwErr"></div>
+  <button class="btn" id="pwGo" style="width: 100%">Open the ledger</button>
+</dialog>
+
+<script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>
