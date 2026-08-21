@@ -48,6 +48,18 @@ CREATE TABLE IF NOT EXISTS months (
   month TEXT PRIMARY KEY
 );
 
+-- Transaction splits (see 004_splits.sql)
+CREATE TABLE IF NOT EXISTS splits (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tx_id TEXT NOT NULL,
+  amount REAL NOT NULL,
+  description TEXT,
+  category TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_splits_tx ON splits (tx_id);
+CREATE INDEX IF NOT EXISTS idx_splits_category ON splits (category);
+
 -- Default categories (swap these for your Tiller list any time)
 INSERT OR IGNORE INTO categories (name, kind, sort_order) VALUES
   ('Groceries', 'expense', 1),

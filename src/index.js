@@ -199,16 +199,54 @@ app.get("/api/transactions", async (c) => {
   const status = c.req.query("status"); // "uncategorized" | undefined
   const month = c.req.query("month"); // "2026-08" | undefined
   const category = c.req.query("category"); // exact category name | undefined
+
+  // Category-scoped listing: whole transactions filed straight to this
+  // category, plus each split line-item that lands in this category
+  // (shown with just its own portion, not the parent's full amount).
+  if (category) {
+    const whereWhole = ["category = ?"];
+    const bindsWhole = [category];
+    if (month) {
+      whereWhole.push("date LIKE ?");
+      bindsWhole.push(month + "%");
+    }
+    const whereSplit = ["s.category = ?"];
+    const bindsSplit = [category];
+    if (month) {
+      whereSplit.push("t.date LIKE ?");
+      bindsSplit.push(month + "%");
+    }
+    const [whole, splitRows] = await Promise.all([
+      c.env.DB.prepare(
+        `SELECT tx_id, date, merchant, amount, category, categorized_by, NULL AS split_id, NULL AS description
+         FROM transactions WHERE ${whereWhole.join(" AND ")}`
+      )
+        .bind(...bindsWhole)
+        .all(),
+      c.env.DB.prepare(
+        `SELECT t.tx_id AS tx_id, t.date AS date, t.merchant AS merchant, s.amount AS amount,
+                s.category AS category, 'split' AS categorized_by, s.id AS split_id, s.description AS description
+         FROM splits s JOIN transactions t ON t.tx_id = s.tx_id
+         WHERE ${whereSplit.join(" AND ")}`
+      )
+        .bind(...bindsSplit)
+        .all(),
+    ]);
+    const combined = [...whole.results, ...splitRows.results]
+      .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
+      .slice(0, 300);
+    return c.json(combined);
+  }
+
   const where = [];
   const binds = [];
-  if (status === "uncategorized") where.push("category IS NULL");
+  if (status === "uncategorized") {
+    where.push("category IS NULL");
+    where.push("categorized_by IS NULL");
+  }
   if (month) {
     where.push("date LIKE ?");
     binds.push(month + "%");
-  }
-  if (category) {
-    where.push("category = ?");
-    binds.push(category);
   }
   const rows = await c.env.DB.prepare(
     `SELECT tx_id, date, merchant, amount, category, categorized_by
@@ -217,17 +255,74 @@ app.get("/api/transactions", async (c) => {
   )
     .bind(...binds)
     .all();
+
+  // Attach each split-filed transaction's breakdown so the UI can show
+  // "Split · N ways" instead of a blank category.
+  const splitTxIds = rows.results.filter((t) => t.categorized_by === "split").map((t) => t.tx_id);
+  if (splitTxIds.length) {
+    const placeholders = splitTxIds.map(() => "?").join(",");
+    const splitsForIds = await c.env.DB.prepare(
+      `SELECT tx_id, category, amount, description FROM splits WHERE tx_id IN (${placeholders})`
+    )
+      .bind(...splitTxIds)
+      .all();
+    const byTx = {};
+    for (const s of splitsForIds.results) (byTx[s.tx_id] ||= []).push(s);
+    for (const t of rows.results) if (byTx[t.tx_id]) t.splits = byTx[t.tx_id];
+  }
+
   return c.json(rows.results);
+});
+
+// Fetch a transaction plus its splits (if any), for the split editor.
+app.get("/api/transactions/:id/splits", async (c) => {
+  const txId = c.req.param("id");
+  const [tx, splits] = await Promise.all([
+    c.env.DB.prepare("SELECT tx_id, date, merchant, amount FROM transactions WHERE tx_id = ?")
+      .bind(txId)
+      .first(),
+    c.env.DB.prepare("SELECT id, amount, description, category FROM splits WHERE tx_id = ? ORDER BY id")
+      .bind(txId)
+      .all(),
+  ]);
+  if (!tx) return c.json({ error: "not found" }, 404);
+  return c.json({ tx, splits: splits.results });
+});
+
+// Replace a transaction's splits. { splits: [{ amount, description, category }] }
+// An empty array clears any split and returns the transaction to uncategorized.
+app.post("/api/transactions/:id/splits", async (c) => {
+  const txId = c.req.param("id");
+  const { splits } = await c.req.json();
+  if (!Array.isArray(splits)) return c.json({ error: "splits[] required" }, 400);
+  const clean = splits.filter((s) => s.category && Number(s.amount));
+  const stmts = [c.env.DB.prepare("DELETE FROM splits WHERE tx_id = ?").bind(txId)];
+  for (const s of clean) {
+    stmts.push(
+      c.env.DB.prepare(
+        "INSERT INTO splits (tx_id, amount, description, category) VALUES (?, ?, ?, ?)"
+      ).bind(txId, Number(s.amount), s.description || null, s.category)
+    );
+  }
+  stmts.push(
+    c.env.DB.prepare("UPDATE transactions SET category = NULL, categorized_by = ? WHERE tx_id = ?").bind(
+      clean.length ? "split" : null,
+      txId
+    )
+  );
+  await c.env.DB.batch(stmts);
+  return c.json({ ok: true });
 });
 
 app.post("/api/transactions/:id/category", async (c) => {
   const { category, save_rule } = await c.req.json();
   const txId = c.req.param("id");
-  await c.env.DB.prepare(
-    "UPDATE transactions SET category = ?, categorized_by = 'you' WHERE tx_id = ?"
-  )
-    .bind(category, txId)
-    .run();
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      "UPDATE transactions SET category = ?, categorized_by = 'you' WHERE tx_id = ?"
+    ).bind(category, txId),
+    c.env.DB.prepare("DELETE FROM splits WHERE tx_id = ?").bind(txId),
+  ]);
   if (save_rule) {
     const tx = await c.env.DB.prepare(
       "SELECT merchant FROM transactions WHERE tx_id = ?"
@@ -337,17 +432,28 @@ app.delete("/api/categories/:name", async (c) => {
   return c.json({ ok: true });
 });
 
-app.get("/api/summary", async (c) => {
-  const month = c.req.query("month"); // "2026-08"
-  const rows = await c.env.DB.prepare(
-    `SELECT category, SUM(amount) AS total, COUNT(*) AS n
-     FROM transactions
-     WHERE date LIKE ? AND category IS NOT NULL
+// Category totals for a month, combining plainly-categorized transactions
+// with each split's own portion of a split transaction.
+async function spentByCategory(env, month) {
+  const rows = await env.DB.prepare(
+    `SELECT category, SUM(amount) AS total, COUNT(*) AS n FROM (
+       SELECT category, amount FROM transactions WHERE date LIKE ? AND category IS NOT NULL
+       UNION ALL
+       SELECT s.category AS category, s.amount AS amount
+       FROM splits s JOIN transactions t ON t.tx_id = s.tx_id
+       WHERE t.date LIKE ?
+     )
      GROUP BY category ORDER BY total DESC`
   )
-    .bind((month || todayMonth()) + "%")
+    .bind(month + "%", month + "%")
     .all();
-  return c.json(rows.results);
+  return rows.results;
+}
+
+app.get("/api/summary", async (c) => {
+  const month = c.req.query("month") || todayMonth(); // "2026-08"
+  const rows = await spentByCategory(c.env, month);
+  return c.json(rows);
 });
 
 // ---------- budgets ----------
@@ -422,16 +528,9 @@ app.get("/api/overview", async (c) => {
     c.env.DB.prepare("SELECT category, amount FROM budgets WHERE month = ?")
       .bind(month)
       .all(),
+    spentByCategory(c.env, month),
     c.env.DB.prepare(
-      `SELECT category, SUM(amount) AS total, COUNT(*) AS n
-       FROM transactions
-       WHERE date LIKE ? AND category IS NOT NULL
-       GROUP BY category`
-    )
-      .bind(month + "%")
-      .all(),
-    c.env.DB.prepare(
-      "SELECT COUNT(*) AS n FROM transactions WHERE category IS NULL"
+      "SELECT COUNT(*) AS n FROM transactions WHERE category IS NULL AND categorized_by IS NULL"
     ).first(),
     latestMonth(c.env),
   ]);
@@ -439,7 +538,7 @@ app.get("/api/overview", async (c) => {
     month,
     categories: categories.results,
     budgets: budgets.results,
-    spent: spent.results,
+    spent,
     uncategorized: uncat?.n || 0,
     latest_month: latest,
   });

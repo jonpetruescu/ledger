@@ -148,31 +148,36 @@ function tabbar() {
   }
 }
 
-// Category chips. onPick(name) is called on tap.
-function chipRow(cats, onPick, selected) {
-  const wrap = document.createElement("div");
-  wrap.className = "chips";
-  const expense = cats.filter((c) => c.kind === "expense");
-  const rest = cats.filter((c) => c.kind !== "expense");
-  const add = (c) => {
-    const b = document.createElement("button");
-    b.className = "chip" + (selected === c.name ? " sel" : "");
-    b.textContent = c.name;
-    b.onclick = () => onPick(c.name);
-    wrap.appendChild(b);
-  };
-  expense.forEach(add);
-  if (rest.length) {
-    const more = document.createElement("button");
-    more.className = "chip";
-    more.textContent = "More…";
-    more.onclick = () => {
-      more.remove();
-      rest.forEach(add);
-    };
-    wrap.appendChild(more);
+const KIND_LABEL = { expense: "Expense", income: "Income", transfer: "Transfer" };
+
+// A category <select>, grouped by kind. onPick(name) fires on change.
+function categorySelect(cats, onPick, selected) {
+  const sel = document.createElement("select");
+  sel.className = "catselect";
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = "Choose a category…";
+  placeholder.disabled = true;
+  placeholder.selected = !selected;
+  sel.appendChild(placeholder);
+  for (const kind of ["expense", "income", "transfer"]) {
+    const inKind = cats.filter((c) => c.kind === kind);
+    if (!inKind.length) continue;
+    const group = document.createElement("optgroup");
+    group.label = KIND_LABEL[kind];
+    for (const c of inKind) {
+      const opt = document.createElement("option");
+      opt.value = c.name;
+      opt.textContent = c.name;
+      if (c.name === selected) opt.selected = true;
+      group.appendChild(opt);
+    }
+    sel.appendChild(group);
   }
-  return wrap;
+  sel.onchange = () => {
+    if (sel.value) onPick(sel.value);
+  };
+  return sel;
 }
 
 async function fileTx(txId, category, saveRule) {
@@ -182,7 +187,7 @@ async function fileTx(txId, category, saveRule) {
   });
 }
 
-// A "to file" card with chips + rule checkbox.
+// A "to file" card with a category dropdown, split button, and rule checkbox.
 function fileCard(t, cats, onDone) {
   const card = document.createElement("div");
   card.className = "filecard";
@@ -193,15 +198,23 @@ function fileCard(t, cats, onDone) {
   const rule = document.createElement("label");
   rule.className = "rule";
   rule.innerHTML = `<input type="checkbox"><span>Always file "${esc(t.merchant || "?")}" this way</span>`;
-  const chips = chipRow(cats, async (name) => {
+  const sel = categorySelect(cats, async (name) => {
     card.style.opacity = "0.4";
     try {
       await fileTx(t.tx_id, name, rule.querySelector("input").checked);
     } finally {
       onDone();
     }
-  });
-  card.appendChild(chips);
+  }, t.category);
+  const actions = document.createElement("div");
+  actions.style.cssText = "display: flex; gap: 8px; align-items: center; margin-top: 8px";
+  const splitBtn = document.createElement("button");
+  splitBtn.className = "btn ghost";
+  splitBtn.textContent = t.categorized_by === "split" ? `Split · ${t.splits?.length || ""} ways`.replace("  ", " ") : "Split";
+  splitBtn.onclick = () => openSplitModal(t.tx_id, cats, onDone);
+  actions.appendChild(sel);
+  actions.appendChild(splitBtn);
+  card.appendChild(actions);
   card.appendChild(rule);
   return card;
 }
@@ -210,11 +223,20 @@ function fileCard(t, cats, onDone) {
 function registerRow(t, cats, onDone, catColor) {
   const row = document.createElement("button");
   row.className = "rrow";
+  const isSplitLine = t.split_id != null;
   const auto = t.categorized_by === "rule" ? " · rule" : "";
+  let subtitle;
+  if (isSplitLine) {
+    subtitle = `${esc(t.category || "")}${t.description ? " · " + esc(t.description) : ""}`;
+  } else if (t.categorized_by === "split") {
+    subtitle = `Split · ${t.splits ? t.splits.length : ""} ways`;
+  } else {
+    subtitle = `${esc(t.category || "")}${auto}`;
+  }
   row.innerHTML = `
     <span class="d mono">${fmtDay(t.date)}</span>
     <span class="who"><span class="m">${esc(t.merchant || "(no name)")}</span>
-      <span class="c" style="${catColor ? "" : ""}">${esc(t.category || "")}${auto}</span></span>
+      <span class="c" style="${catColor ? "" : ""}">${subtitle}</span></span>
     <span class="amt mono ${t.amount < 0 ? "in" : ""}">$${fmtAmt(t.amount)}</span>`;
   row.onclick = () => {
     if (row.nextSibling && row.nextSibling.classList?.contains("filecard")) {
@@ -226,6 +248,152 @@ function registerRow(t, cats, onDone, catColor) {
     row.after(editor);
   };
   return row;
+}
+
+// ---------- split transaction modal ----------
+
+function fmt2(n) {
+  return Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function openSplitModal(txId, cats, onDone) {
+  const dlg = document.createElement("dialog");
+  dlg.className = "splitdlg";
+  dlg.innerHTML = '<div class="empty">Loading…</div>';
+  document.body.appendChild(dlg);
+  dlg.addEventListener("close", () => dlg.remove());
+  dlg.showModal();
+
+  api(`/transactions/${txId}/splits`).then((data) => {
+    if (data.error) {
+      dlg.innerHTML = '<div class="empty">Couldn\'t load this transaction.</div>';
+      return;
+    }
+    renderSplitForm(dlg, data.tx, data.splits, cats, onDone);
+  });
+}
+
+function renderSplitForm(dlg, tx, existingSplits, cats, onDone) {
+  const rows = existingSplits.length
+    ? existingSplits.map((s) => ({ amount: s.amount, description: s.description || "", category: s.category }))
+    : [{ amount: 0, description: "", category: "" }];
+
+  dlg.innerHTML = "";
+
+  const head = document.createElement("div");
+  head.className = "splithead";
+  head.innerHTML = `
+    <div>
+      <strong class="serif" style="font-size: 20px">${esc(tx.merchant || "(no name)")}</strong>
+      <div class="lbl">${fmtDay(tx.date)} · total $${fmtAmt(tx.amount)}</div>
+    </div>`;
+  const close = document.createElement("button");
+  close.className = "step";
+  close.textContent = "×";
+  close.onclick = () => dlg.close();
+  head.appendChild(close);
+  dlg.appendChild(head);
+
+  const list = document.createElement("div");
+  list.className = "splitlist";
+  dlg.appendChild(list);
+
+  const addBtn = document.createElement("button");
+  addBtn.className = "btn ghost";
+  addBtn.style.margin = "10px 0";
+  addBtn.textContent = "+ Add a split";
+  dlg.appendChild(addBtn);
+
+  const footer = document.createElement("div");
+  footer.className = "splitfoot";
+  dlg.appendChild(footer);
+
+  const assignedTotal = () => rows.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+
+  const updateFooter = () => {
+    const assigned = assignedTotal();
+    const remaining = tx.amount - assigned;
+    footer.innerHTML = `
+      <div class="splitrow-sum"><span>Assigned</span><span class="mono">$${fmt2(assigned)}</span></div>
+      <div class="splitrow-sum"><span>Remaining</span><span class="mono" style="color: ${Math.abs(remaining) > 0.005 ? "var(--over)" : "var(--green)"}">$${fmt2(remaining)}</span></div>`;
+    const save = document.createElement("button");
+    save.className = "btn grow";
+    save.style.marginTop = "10px";
+    save.textContent = "Save split";
+    save.onclick = saveSplit;
+    footer.appendChild(save);
+  };
+
+  const buildRow = (r) => {
+    const rw = document.createElement("div");
+    rw.className = "splitentry";
+    const amtIn = document.createElement("input");
+    amtIn.className = "amtin mono";
+    amtIn.type = "text";
+    amtIn.inputMode = "decimal";
+    amtIn.placeholder = "0";
+    amtIn.value = r.amount ? fmt2(r.amount) : "";
+    amtIn.oninput = () => {
+      r.amount = parseFloat(amtIn.value.replace(/[^0-9.]/g, "")) || 0;
+      updateFooter();
+    };
+
+    const descIn = document.createElement("input");
+    descIn.className = "splitdesc";
+    descIn.placeholder = "Description (optional)";
+    descIn.value = r.description;
+    descIn.oninput = () => {
+      r.description = descIn.value;
+    };
+
+    const sel = categorySelect(
+      cats,
+      (name) => {
+        r.category = name;
+      },
+      r.category
+    );
+
+    const rm = document.createElement("button");
+    rm.className = "step";
+    rm.textContent = "×";
+    rm.title = "Remove this split";
+    rm.onclick = () => {
+      const i = rows.indexOf(r);
+      if (i >= 0) rows.splice(i, 1);
+      rw.remove();
+      updateFooter();
+    };
+
+    rw.appendChild(amtIn);
+    rw.appendChild(descIn);
+    rw.appendChild(sel);
+    rw.appendChild(rm);
+    list.appendChild(rw);
+  };
+
+  rows.forEach(buildRow);
+  updateFooter();
+
+  addBtn.onclick = () => {
+    const remaining = tx.amount - assignedTotal();
+    const nr = { amount: remaining, description: "", category: "" };
+    rows.push(nr);
+    buildRow(nr);
+    updateFooter();
+  };
+
+  async function saveSplit() {
+    const payload = rows
+      .filter((r) => r.category && Number(r.amount))
+      .map((r) => ({ amount: Number(r.amount), description: r.description, category: r.category }));
+    await api(`/transactions/${tx.tx_id}/splits`, {
+      method: "POST",
+      body: JSON.stringify({ splits: payload }),
+    });
+    dlg.close();
+    onDone();
+  }
 }
 
 function groupByDate(txs) {
@@ -280,7 +448,7 @@ async function renderTx() {
   lbl2.className = "lbl datehead";
   lbl2.textContent = "Filed";
   v.appendChild(lbl2);
-  const withCat = filed.filter((t) => t.category);
+  const withCat = filed.filter((t) => t.category || t.categorized_by === "split");
   if (!withCat.length) {
     const e = document.createElement("div");
     e.className = "empty";
@@ -865,7 +1033,7 @@ async function renderActivity() {
     v.appendChild(tray);
   }
 
-  const withCat = txs.filter((t) => t.category);
+  const withCat = txs.filter((t) => t.category || t.categorized_by === "split");
   if (!withCat.length) {
     const e = document.createElement("div");
     e.className = "empty";
