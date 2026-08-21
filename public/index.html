@@ -167,7 +167,9 @@
   }
 
   dialog.splitdlg {
-    width: min(96vw, 520px); height: min(88vh, 680px); padding: 16px;
+    width: 100%; max-width: 640px; height: 100dvh; max-height: 100dvh;
+    margin: 0 auto; border-radius: 0; border: none;
+    padding: calc(16px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom));
     display: flex; flex-direction: column;
   }
   .splithead { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
