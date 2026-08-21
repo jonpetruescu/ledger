@@ -331,9 +331,15 @@ function splitField(labelText, control, { prefix, clearable } = {}) {
 }
 
 function renderSplitForm(dlg, tx, existingSplits, cats, onDone) {
+  // Every split starts with a real category already picked — an unselected
+  // "Choose a category…" placeholder meant a split could sit there looking
+  // filled in while silently failing to save.
+  const defaultCategory = cats.find((c) => c.kind === "expense")?.name || cats[0]?.name || "";
+  const newRow = () => ({ amount: 0, description: tx.merchant || "", category: defaultCategory });
+
   const rows = existingSplits.length
     ? existingSplits.map((s) => ({ amount: s.amount, description: s.description || "", category: s.category }))
-    : [{ amount: tx.amount, description: "", category: "" }];
+    : [{ ...newRow(), amount: tx.amount }];
 
   dlg.innerHTML = "";
 
@@ -373,10 +379,11 @@ function renderSplitForm(dlg, tx, existingSplits, cats, onDone) {
   const updateFooter = () => {
     const assigned = assignedTotal();
     const remaining = tx.amount - assigned;
+    const balanced = Math.abs(remaining) <= 0.005;
     footer.innerHTML = `
       <div class="splitfoot-grid">
         <div><div class="splitfieldlbl">Assigned</div><div class="mono" style="font-size: 20px">$${fmt2(assigned)}</div></div>
-        <div><div class="splitfieldlbl">Remaining</div><div class="mono" style="font-size: 20px; color: ${Math.abs(remaining) > 0.005 ? "var(--over)" : "var(--green)"}">$${fmt2(remaining)}</div></div>
+        <div><div class="splitfieldlbl">Remaining</div><div class="mono" style="font-size: 20px; color: ${balanced ? "var(--green)" : "var(--over)"}">$${fmt2(remaining)}</div></div>
       </div>
       <div class="err" id="splitErr"></div>`;
     const row = document.createElement("div");
@@ -389,6 +396,8 @@ function renderSplitForm(dlg, tx, existingSplits, cats, onDone) {
     const save = document.createElement("button");
     save.className = "btn grow";
     save.textContent = "Save Splits";
+    save.disabled = !balanced;
+    save.title = balanced ? "" : "Splits must add up to the original amount";
     save.onclick = () => saveSplit(save);
     row.appendChild(cancel);
     row.appendChild(save);
@@ -456,7 +465,7 @@ function renderSplitForm(dlg, tx, existingSplits, cats, onDone) {
 
   addBtn.onclick = () => {
     const remaining = tx.amount - assignedTotal();
-    rows.push({ amount: Math.max(0, remaining), description: "", category: "" });
+    rows.push({ ...newRow(), amount: Math.max(0, remaining) });
     const cards = rebuildList();
     updateFooter();
     // Assigned/Remaining often don't change (a fresh split starts at $0
@@ -469,6 +478,22 @@ function renderSplitForm(dlg, tx, existingSplits, cats, onDone) {
 
   async function saveSplit(saveBtn) {
     const errEl = footer.querySelector("#splitErr");
+    if (errEl) errEl.textContent = "";
+
+    // A row with an amount but no category (or vice versa) used to be
+    // silently dropped from the save — it looked like the split just
+    // never happened. Block instead, with a clear reason.
+    const incomplete = rows.some((r) => {
+      const hasAmount = Number(r.amount) > 0;
+      const hasCategory = !!r.category;
+      const touched = hasAmount || hasCategory || r.description;
+      return touched && !(hasAmount && hasCategory);
+    });
+    if (incomplete) {
+      if (errEl) errEl.textContent = "Give every split both an amount and a category before saving.";
+      return;
+    }
+
     const payload = rows
       .filter((r) => r.category && Number(r.amount))
       .map((r) => ({ amount: Number(r.amount), description: r.description, category: r.category }));
