@@ -784,18 +784,39 @@ async function renderPlan() {
   v.appendChild(topRow);
 
   addBtn.onclick = () => {
-    topRow.innerHTML = "";
-    const nameInput = document.createElement("input");
-    nameInput.className = "amtin";
-    nameInput.style.width = "120px";
-    nameInput.placeholder = "Name";
+    document.querySelectorAll("dialog.editdlg").forEach((d) => d.remove());
+    const dlg = document.createElement("dialog");
+    dlg.className = "editdlg";
+    document.body.appendChild(dlg);
+    dlg.addEventListener("close", () => dlg.remove());
+
+    const title = document.createElement("strong");
+    title.className = "serif";
+    title.style.cssText = "font-size: 20px; display: block";
+    title.textContent = "Add budget";
+    dlg.appendChild(title);
+
+    const nameIn = document.createElement("input");
+    nameIn.placeholder = "Name";
+    dlg.appendChild(nameIn);
+
     const groupPicker = makeGroupPicker("");
+    groupPicker.style.margin = "0 0 14px";
+    dlg.appendChild(groupPicker);
+
+    const kindLbl = document.createElement("div");
+    kindLbl.className = "lbl";
+    kindLbl.style.marginBottom = "6px";
+    kindLbl.textContent = "Type";
+    dlg.appendChild(kindLbl);
+
     let kind = "expense";
     const kindWrap = document.createElement("div");
-    kindWrap.style.cssText = "display: flex; gap: 4px";
+    kindWrap.style.cssText = "display: flex; gap: 8px";
     const kindBtns = ["expense", "income", "transfer"].map((k) => {
       const b = document.createElement("button");
       b.className = "chip" + (k === kind ? " sel" : "");
+      b.style.flex = "1";
       b.textContent = k[0].toUpperCase() + k.slice(1);
       b.onclick = () => {
         kind = k;
@@ -805,29 +826,46 @@ async function renderPlan() {
       kindWrap.appendChild(b);
       return b;
     });
-    const confirmBtn = document.createElement("button");
-    confirmBtn.className = "btn";
-    confirmBtn.textContent = "Add";
-    confirmBtn.onclick = async () => {
-      const name = nameInput.value.trim();
+    dlg.appendChild(kindWrap);
+
+    const err = document.createElement("div");
+    err.className = "err";
+    err.style.marginTop = "8px";
+    dlg.appendChild(err);
+
+    const row = document.createElement("div");
+    row.className = "btnrow";
+    row.style.marginTop = "8px";
+    const save = document.createElement("button");
+    save.className = "btn grow";
+    save.textContent = "Add";
+    save.onclick = async () => {
+      const name = nameIn.value.trim();
       if (!name) return;
-      confirmBtn.textContent = "Adding…";
+      save.textContent = "Adding…";
       const r = await api("/categories", {
         method: "POST",
         body: JSON.stringify({ name, kind, group_name: groupPicker.getValue() || undefined }),
       });
       if (r.error) {
-        alert(r.error);
-        confirmBtn.textContent = "Add";
+        err.textContent = r.error;
+        save.textContent = "Add";
         return;
       }
+      dlg.close();
       renderPlan();
     };
-    topRow.appendChild(nameInput);
-    topRow.appendChild(groupPicker);
-    topRow.appendChild(kindWrap);
-    topRow.appendChild(confirmBtn);
-    nameInput.focus();
+    const cancel = document.createElement("button");
+    cancel.className = "btn ghost";
+    cancel.textContent = "Cancel";
+    cancel.onclick = () => dlg.close();
+    row.appendChild(save);
+    row.appendChild(cancel);
+    dlg.appendChild(row);
+
+    lockScrollWhileOpen(dlg);
+    dlg.showModal();
+    nameIn.focus();
   };
 
   // The Allocated/Unallocated summary lives fixed in the tab bar (see
