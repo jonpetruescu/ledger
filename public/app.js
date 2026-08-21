@@ -477,6 +477,27 @@ function renderSplitForm(dlg, tx, existingSplits, cats, onDone) {
   rebuildList();
   updateFooter();
 
+  // TEMPORARY diagnostic: surface real DOM state on-screen since two
+  // rounds of fixes based on guesses haven't resolved this on the
+  // reporter's phone, and nothing is throwing. Remove once root-caused.
+  {
+    const dbg = document.createElement("div");
+    dbg.style.cssText =
+      "font-size: 11px; color: var(--over); background: var(--bg); border: 1px solid var(--over); " +
+      "padding: 6px; margin-bottom: 8px; white-space: pre-wrap; word-break: break-all;";
+    const rect = list.getBoundingClientRect();
+    const dlgRect = dlg.getBoundingClientRect();
+    dbg.textContent =
+      `DEBUG rows=${rows.length} listChildren=${list.children.length} ` +
+      `listRect=${Math.round(rect.width)}x${Math.round(rect.height)}@${Math.round(rect.top)} ` +
+      `dlgRect=${Math.round(dlgRect.width)}x${Math.round(dlgRect.height)} ` +
+      `dlgMaxH=${dlg.style.maxHeight || "(css default)"} ` +
+      `vh=${window.visualViewport ? Math.round(window.visualViewport.height) : "n/a"} ` +
+      `winH=${window.innerHeight} ` +
+      `ua=${navigator.userAgent}`;
+    dlg.insertBefore(dbg, list);
+  }
+
   addBtn.onclick = () => {
     try {
       const remaining = tx.amount - assignedTotal();
