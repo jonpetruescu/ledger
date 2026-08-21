@@ -1015,14 +1015,11 @@ async function renderPlan() {
     }
     const groupNames = Object.keys(groups).sort((a, b) => a.localeCompare(b));
     for (const g of groupNames) {
-      const box = document.createElement("div");
-      box.className = "groupbox";
       const gh = document.createElement("div");
       gh.className = "grouphead";
       gh.textContent = g;
-      box.appendChild(gh);
-      for (const c of groups[g]) box.appendChild(mkRow(c));
-      v.appendChild(box);
+      v.appendChild(gh);
+      for (const c of groups[g]) v.appendChild(mkRow(c));
     }
     if (ungrouped.length) {
       if (groupNames.length) {
