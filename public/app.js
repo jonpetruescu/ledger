@@ -290,13 +290,21 @@ function openSplitModal(txId, cats, onDone) {
     dlg.addEventListener("close", () => window.visualViewport.removeEventListener("resize", fit));
   }
 
-  api(`/transactions/${txId}/splits`).then((data) => {
-    if (data.error) {
-      dlg.innerHTML = '<div class="empty">Couldn\'t load this transaction.</div>';
-      return;
-    }
-    renderSplitForm(dlg, data.tx, data.splits, cats, onDone);
-  });
+  api(`/transactions/${txId}/splits`)
+    .then((data) => {
+      if (data.error) {
+        dlg.innerHTML = '<div class="empty">Couldn\'t load this transaction.</div>';
+        return;
+      }
+      try {
+        renderSplitForm(dlg, data.tx, data.splits, cats, onDone);
+      } catch (e) {
+        dlg.innerHTML = `<div class="empty">Something broke rendering this: ${esc(e.message)}<br><br>${esc(e.stack || "").slice(0, 500)}</div>`;
+      }
+    })
+    .catch((e) => {
+      dlg.innerHTML = `<div class="empty">Couldn't load this transaction: ${esc(e.message)}</div>`;
+    });
 }
 
 // A labeled field: label above, input/select below, optional $ prefix and
@@ -470,16 +478,20 @@ function renderSplitForm(dlg, tx, existingSplits, cats, onDone) {
   updateFooter();
 
   addBtn.onclick = () => {
-    const remaining = tx.amount - assignedTotal();
-    rows.push({ ...newRow(), amount: Math.max(0, remaining) });
-    const cards = rebuildList();
-    updateFooter();
-    // Assigned/Remaining often don't change (a fresh split starts at $0
-    // once everything else is already allocated), so without this the
-    // new card can look like the tap did nothing.
-    const newCard = cards[cards.length - 1];
-    newCard.scrollIntoView({ block: "nearest", behavior: "smooth" });
-    newCard.querySelector(".amtin")?.focus();
+    try {
+      const remaining = tx.amount - assignedTotal();
+      rows.push({ ...newRow(), amount: Math.max(0, remaining) });
+      const cards = rebuildList();
+      updateFooter();
+      // Assigned/Remaining often don't change (a fresh split starts at $0
+      // once everything else is already allocated), so without this the
+      // new card can look like the tap did nothing.
+      const newCard = cards[cards.length - 1];
+      newCard.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      newCard.querySelector(".amtin")?.focus();
+    } catch (e) {
+      alert("Add split broke: " + e.message);
+    }
   };
 
   async function saveSplit(saveBtn) {
