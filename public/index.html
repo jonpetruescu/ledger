@@ -102,43 +102,47 @@
 
   /* plan rows */
   .srow { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }
-  .srow .name { flex: 1; font-size: 14px; min-width: 0; }
-  .step { width: 34px; height: 38px; border: 1px solid var(--line2); border-radius: 3px; background: var(--panel); color: var(--muted); font-size: 18px; flex-shrink: 0; }
+  .srow .name, button.name {
+    flex: 1; font-size: 14px; min-width: 0; text-align: left; background: none; border: none;
+    color: inherit; padding: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .grouphead { font-size: 11px; letter-spacing: 0.06em; color: var(--faint); padding: 8px 0 2px; }
+  .renamewrap { display: flex; gap: 6px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .renamein {
+    flex: 1; min-width: 90px; padding: 9px 10px; font-size: 16px; border: 1px solid var(--line2);
+    border-radius: 3px; background: var(--bg); color: var(--ink);
+  }
+  .step {
+    width: 34px; height: 38px; border: 1px solid var(--line2); border-radius: 3px; background: var(--panel);
+    color: var(--muted); font-size: 18px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center; line-height: 1;
+  }
   .amtin {
     width: 88px; border: 1px solid var(--line2); border-radius: 3px; background: var(--panel);
     padding: 9px 10px; font-size: 15px; text-align: right; color: var(--ink);
   }
   .amtin:focus { outline: none; border-color: var(--accent); }
+  .btn.small { padding: 7px 10px; font-size: 12px; }
 
-  /* envelopes */
   .tray { display: flex; align-items: center; justify-content: space-between; background: var(--panel2); border: 1.5px solid var(--accent); border-radius: 4px; padding: 12px 14px; margin-top: 12px; }
-  .envgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
-  .env { border: 1px solid var(--line2); border-radius: 4px; background: var(--panel); padding: 12px 14px; display: flex; flex-direction: column; gap: 7px; position: relative; min-height: 44px; }
-  .env .tab { position: absolute; top: -1px; left: 12px; width: 34px; height: 5px; background: var(--line2); border-radius: 0 0 3px 3px; }
-  .env.overe { border-color: var(--over); background: var(--over-bg); }
-  .env.overe .tab { background: var(--over); }
-  .env .nm { font-size: 13px; font-weight: 600; }
-  .env .left { font-size: 20px; }
-  .env .sub { font-size: 11px; color: var(--faint); }
 
   .banner { display: flex; align-items: center; gap: 10px; background: var(--green-bg); border: 1px solid var(--green-line); border-radius: 4px; padding: 12px 14px; margin-top: 12px; color: var(--green); font-size: 14px; }
 
   /* settings */
   .setrow { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 0; border-bottom: 1px solid var(--line); width: 100%; }
-  .opt { display: flex; flex-direction: column; gap: 4px; border: 1px solid var(--line2); border-radius: 4px; background: var(--panel); padding: 14px; flex: 1; }
-  .opt.sel { border-color: var(--accent); border-width: 1.5px; background: var(--panel2); }
-  .opt .t { font-size: 15px; font-weight: 600; }
-  .opt .s { font-size: 12px; color: var(--muted); }
 
   /* bottom nav */
   nav#tabbar {
     position: fixed; left: 0; right: 0; bottom: 0;
-    display: flex; border-top: 1px solid var(--line2); background: var(--panel);
-    padding: 8px 0 calc(10px + env(safe-area-inset-bottom));
+    display: flex; flex-direction: column; border-top: 1px solid var(--line2); background: var(--panel);
+    padding-bottom: env(safe-area-inset-bottom);
   }
-  nav#tabbar button { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; color: var(--faint); font-size: 11px; padding: 4px 0; }
-  nav#tabbar button.on { color: var(--accent); font-weight: 600; }
-  nav#tabbar svg { display: block; }
+  .planfoot { padding: 10px 20px 6px; border-bottom: 1px solid var(--line2); }
+  .tabsrow { display: flex; padding: 8px 0 2px; }
+  .tabsrow button { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; color: var(--faint); font-size: 11px; padding: 4px 0; position: relative; }
+  .tabsrow button.on { color: var(--accent); font-weight: 600; }
+  .tabsrow svg { display: block; }
+  .badge { position: absolute; top: 2px; right: calc(50% - 16px); width: 8px; height: 8px; border-radius: 50%; background: var(--over); }
 
   .empty { text-align: center; color: var(--muted); padding: 48px 16px; font-size: 15px; }
   dialog {

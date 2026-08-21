@@ -86,8 +86,7 @@ app.post("/api/plaid_webhook", async (c) => {
     )
   ) {
     const added = await syncItem(c.env, body.item_id);
-    // TODO (session 3): send a web push notification here for each
-    // uncategorized transaction that was just added.
+    await notifyNewTransactions(c.env, added);
     console.log(`Synced ${added} new transactions`);
   }
   return c.json({ ok: true });
@@ -171,6 +170,182 @@ function autoCategory(rules, merchant) {
     if (m.includes(r.pattern.toLowerCase())) return r.category;
   }
   return null;
+}
+
+// ---------- web push (RFC 8291 aes128gcm + RFC 8292 VAPID) ----------
+
+function b64urlEncode(buf) {
+  const bytes = new Uint8Array(buf);
+  let bin = "";
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function b64urlDecode(str) {
+  str = str.replace(/-/g, "+").replace(/_/g, "/");
+  while (str.length % 4) str += "=";
+  const bin = atob(str);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+function concatBytes(...arrs) {
+  const len = arrs.reduce((n, a) => n + a.length, 0);
+  const out = new Uint8Array(len);
+  let off = 0;
+  for (const a of arrs) {
+    out.set(a, off);
+    off += a.length;
+  }
+  return out;
+}
+
+async function hmacSha256(keyBytes, dataBytes) {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    keyBytes,
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  return new Uint8Array(await crypto.subtle.sign("HMAC", key, dataBytes));
+}
+
+async function hkdf(salt, ikm, info, length) {
+  const prk = await hmacSha256(salt, ikm);
+  const okm = await hmacSha256(prk, concatBytes(info, new Uint8Array([1])));
+  return okm.slice(0, length);
+}
+
+// The VAPID Authorization header, proving this server owns the keypair
+// whose public half the browser used to create the push subscription.
+async function vapidHeader(env, endpoint) {
+  const aud = new URL(endpoint).origin;
+  const header = { typ: "JWT", alg: "ES256" };
+  const payload = {
+    aud,
+    exp: Math.floor(Date.now() / 1000) + 12 * 3600,
+    sub: "mailto:" + (env.VAPID_SUBJECT_EMAIL || "admin@example.com"),
+  };
+  const encHeader = b64urlEncode(new TextEncoder().encode(JSON.stringify(header)));
+  const encPayload = b64urlEncode(new TextEncoder().encode(JSON.stringify(payload)));
+  const signingInput = `${encHeader}.${encPayload}`;
+
+  const dBytes = b64urlDecode(env.VAPID_PRIVATE_KEY);
+  const pubBytes = b64urlDecode(env.VAPID_PUBLIC_KEY);
+  const jwk = {
+    kty: "EC",
+    crv: "P-256",
+    d: b64urlEncode(dBytes),
+    x: b64urlEncode(pubBytes.slice(1, 33)),
+    y: b64urlEncode(pubBytes.slice(33, 65)),
+    ext: true,
+  };
+  const privateKey = await crypto.subtle.importKey(
+    "jwk",
+    jwk,
+    { name: "ECDSA", namedCurve: "P-256" },
+    false,
+    ["sign"]
+  );
+  const sig = await crypto.subtle.sign(
+    { name: "ECDSA", hash: "SHA-256" },
+    privateKey,
+    new TextEncoder().encode(signingInput)
+  );
+  return `vapid t=${signingInput}.${b64urlEncode(sig)}, k=${env.VAPID_PUBLIC_KEY}`;
+}
+
+// Encrypt one push message body for a single subscriber.
+async function encryptPushPayload(payloadBytes, p256dhB64, authB64) {
+  const subscriberPublic = b64urlDecode(p256dhB64);
+  const authSecret = b64urlDecode(authB64);
+
+  const ephemeral = await crypto.subtle.generateKey(
+    { name: "ECDH", namedCurve: "P-256" },
+    true,
+    ["deriveBits"]
+  );
+  const ephemeralPublicRaw = new Uint8Array(
+    await crypto.subtle.exportKey("raw", ephemeral.publicKey)
+  );
+  const subscriberKey = await crypto.subtle.importKey(
+    "raw",
+    subscriberPublic,
+    { name: "ECDH", namedCurve: "P-256" },
+    false,
+    []
+  );
+  const sharedSecret = new Uint8Array(
+    await crypto.subtle.deriveBits({ name: "ECDH", public: subscriberKey }, ephemeral.privateKey, 256)
+  );
+
+  const keyInfo = concatBytes(
+    new TextEncoder().encode("WebPush: info\0"),
+    subscriberPublic,
+    ephemeralPublicRaw
+  );
+  const ikm = await hkdf(authSecret, sharedSecret, keyInfo, 32);
+
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const cek = await hkdf(salt, ikm, new TextEncoder().encode("Content-Encoding: aes128gcm\0"), 16);
+  const nonce = await hkdf(salt, ikm, new TextEncoder().encode("Content-Encoding: nonce\0"), 12);
+
+  const paddedPlaintext = concatBytes(payloadBytes, new Uint8Array([2])); // 2 = last (only) record
+  const aesKey = await crypto.subtle.importKey("raw", cek, { name: "AES-GCM" }, false, ["encrypt"]);
+  const ciphertext = new Uint8Array(
+    await crypto.subtle.encrypt({ name: "AES-GCM", iv: nonce }, aesKey, paddedPlaintext)
+  );
+
+  const rs = new Uint8Array(4);
+  new DataView(rs.buffer).setUint32(0, 4096, false);
+  const idlen = new Uint8Array([ephemeralPublicRaw.length]);
+  return concatBytes(salt, rs, idlen, ephemeralPublicRaw, ciphertext);
+}
+
+async function sendWebPush(env, subscription, payloadObj) {
+  const { endpoint, keys } = subscription;
+  if (!endpoint || !keys?.p256dh || !keys?.auth) return;
+  if (!env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_KEY) return;
+  const body = await encryptPushPayload(
+    new TextEncoder().encode(JSON.stringify(payloadObj)),
+    keys.p256dh,
+    keys.auth
+  );
+  const authHeader = await vapidHeader(env, endpoint);
+  const res = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      Authorization: authHeader,
+      "Content-Encoding": "aes128gcm",
+      "Content-Type": "application/octet-stream",
+      TTL: "86400",
+    },
+    body,
+  });
+  if (!res.ok) {
+    if (res.status === 404 || res.status === 410) {
+      await env.DB.prepare("DELETE FROM push_subscriptions WHERE endpoint = ?").bind(endpoint).run();
+    } else {
+      console.error("push send failed", res.status, await res.text());
+    }
+  }
+}
+
+async function notifyNewTransactions(env, count) {
+  if (!count) return;
+  const subs = (await env.DB.prepare("SELECT endpoint, keys_json FROM push_subscriptions").all()).results;
+  if (!subs.length) return;
+  const payload = {
+    title: count === 1 ? "1 new transaction" : `${count} new transactions`,
+    body: "Tap to categorize",
+  };
+  await Promise.all(
+    subs.map((s) =>
+      sendWebPush(env, { endpoint: s.endpoint, keys: JSON.parse(s.keys_json) }, payload)
+    )
+  );
 }
 
 // ---------- months ----------
@@ -342,16 +517,16 @@ app.post("/api/transactions/:id/category", async (c) => {
 
 app.get("/api/categories", async (c) => {
   const rows = await c.env.DB.prepare(
-    "SELECT name, kind FROM categories ORDER BY sort_order"
+    "SELECT name, kind, group_name FROM categories ORDER BY sort_order"
   ).all();
   return c.json(rows.results);
 });
 
 const KINDS = ["expense", "income", "transfer"];
 
-// Create a new budget (category). { name, kind }
+// Create a new budget (category). { name, kind, group_name? }
 app.post("/api/categories", async (c) => {
-  const { name, kind } = await c.req.json();
+  const { name, kind, group_name } = await c.req.json();
   if (!name?.trim() || !KINDS.includes(kind)) {
     return c.json({ error: "name and a valid kind are required" }, 400);
   }
@@ -365,23 +540,23 @@ app.post("/api/categories", async (c) => {
     "SELECT COALESCE(MAX(sort_order), 0) AS m FROM categories"
   ).first();
   await c.env.DB.prepare(
-    "INSERT INTO categories (name, kind, sort_order) VALUES (?, ?, ?)"
+    "INSERT INTO categories (name, kind, sort_order, group_name) VALUES (?, ?, ?, ?)"
   )
-    .bind(name.trim(), kind, (maxSort?.m || 0) + 1)
+    .bind(name.trim(), kind, (maxSort?.m || 0) + 1, group_name?.trim() || null)
     .run();
   return c.json({ ok: true });
 });
 
-// Rename and/or re-type a budget. { name?, kind? }
+// Rename, re-type, and/or re-group a budget. { name?, kind?, group_name? }
 app.put("/api/categories/:name", async (c) => {
   const oldName = c.req.param("name");
-  const { name, kind } = await c.req.json();
+  const { name, kind, group_name } = await c.req.json();
   const newName = name?.trim() || oldName;
   if (kind && !KINDS.includes(kind)) {
     return c.json({ error: "invalid kind" }, 400);
   }
   const existing = await c.env.DB.prepare(
-    "SELECT kind FROM categories WHERE name = ?"
+    "SELECT kind, group_name FROM categories WHERE name = ?"
   )
     .bind(oldName)
     .first();
@@ -395,12 +570,11 @@ app.put("/api/categories/:name", async (c) => {
     if (clash) return c.json({ error: "a budget with that name already exists" }, 409);
   }
   const finalKind = kind || existing.kind;
+  const finalGroup = group_name === undefined ? existing.group_name : group_name?.trim() || null;
   const stmts = [
-    c.env.DB.prepare("UPDATE categories SET name = ?, kind = ? WHERE name = ?").bind(
-      newName,
-      finalKind,
-      oldName
-    ),
+    c.env.DB.prepare(
+      "UPDATE categories SET name = ?, kind = ?, group_name = ? WHERE name = ?"
+    ).bind(newName, finalKind, finalGroup, oldName),
   ];
   if (newName !== oldName) {
     stmts.push(
@@ -523,7 +697,7 @@ app.get("/api/overview", async (c) => {
   const month = c.req.query("month") || todayMonth();
   const [categories, budgets, spent, uncat, latest] = await Promise.all([
     c.env.DB.prepare(
-      "SELECT name, kind FROM categories ORDER BY sort_order"
+      "SELECT name, kind, group_name FROM categories ORDER BY sort_order"
     ).all(),
     c.env.DB.prepare("SELECT category, amount FROM budgets WHERE month = ?")
       .bind(month)
@@ -566,6 +740,22 @@ app.post("/api/months/next", async (c) => {
   return c.json({ ok: true, month: next });
 });
 
+// Undo an accidental "set up next month": only removes a month that was
+// explicitly set up ahead of the real calendar month, never today's
+// actual month or the past.
+app.delete("/api/months/latest", async (c) => {
+  const cur = todayMonth();
+  const row = await c.env.DB.prepare("SELECT MAX(month) AS m FROM months").first();
+  if (!row?.m || row.m <= cur) {
+    return c.json({ error: "no set-up month to delete" }, 400);
+  }
+  await c.env.DB.batch([
+    c.env.DB.prepare("DELETE FROM months WHERE month = ?").bind(row.m),
+    c.env.DB.prepare("DELETE FROM budgets WHERE month = ?").bind(row.m),
+  ]);
+  return c.json({ ok: true, deleted: row.m });
+});
+
 // Point every connected bank's webhook at this deployment's URL.
 // Needed once after the worker URL changes (rename, custom domain).
 app.post("/api/update_webhooks", async (c) => {
@@ -580,6 +770,34 @@ app.post("/api/update_webhooks", async (c) => {
     });
   }
   return c.json({ ok: true, updated: items.length });
+});
+
+// ---------- push subscriptions ----------
+
+app.get("/api/push/vapid_public_key", async (c) => {
+  return c.json({ key: c.env.VAPID_PUBLIC_KEY || null });
+});
+
+app.post("/api/push/subscribe", async (c) => {
+  const sub = await c.req.json();
+  if (!sub?.endpoint || !sub?.keys?.p256dh || !sub?.keys?.auth) {
+    return c.json({ error: "invalid subscription" }, 400);
+  }
+  await c.env.DB.prepare(
+    `INSERT INTO push_subscriptions (endpoint, keys_json) VALUES (?, ?)
+     ON CONFLICT (endpoint) DO UPDATE SET keys_json = excluded.keys_json`
+  )
+    .bind(sub.endpoint, JSON.stringify(sub.keys))
+    .run();
+  return c.json({ ok: true });
+});
+
+app.post("/api/push/unsubscribe", async (c) => {
+  const { endpoint } = await c.req.json();
+  if (endpoint) {
+    await c.env.DB.prepare("DELETE FROM push_subscriptions WHERE endpoint = ?").bind(endpoint).run();
+  }
+  return c.json({ ok: true });
 });
 
 app.post("/api/sync_now", async (c) => {

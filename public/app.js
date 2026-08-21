@@ -1,9 +1,9 @@
-// Ledger — front end. Two layouts (classic / envelopes), switchable in Settings.
+// Ledger — front end.
 
 let KEY = localStorage.getItem("appKey") || "";
-let MODE = localStorage.getItem("layoutMode") || "classic"; // "classic" | "envelopes"
 let MONTH = new Date().toISOString().slice(0, 7);
 let LATEST_MONTH = MONTH; // furthest month you're allowed to view; refreshed from /overview
+let UNCATEGORIZED = 0; // refreshed from /overview; drives the Transactions tab badge
 let ROUTE = null; // {name, arg}
 
 const $ = (id) => document.getElementById(id);
@@ -91,6 +91,8 @@ async function getOverview() {
     LATEST_MONTH = ov.latest_month;
     updateMonthNav();
   }
+  UNCATEGORIZED = ov.uncategorized || 0;
+  tabbar();
   return ov;
 }
 
@@ -120,32 +122,34 @@ const ICONS = {
   list: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M4 6h16M4 12h16M4 18h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
   bars: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M4 20V10M10 20V4M16 20v-8M22 20H2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
   sliders: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M4 8h16M4 16h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="9" cy="8" r="2.4" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="15" cy="16" r="2.4" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>',
-  envelope: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M4 7h16v12H4z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M4 7l8 6 8-6" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>',
   back: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M15 5l-7 7 7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   check: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><path d="M8 12.5l2.6 2.6L16 9.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
 };
 
+const TABS = [
+  ["budget", "Budget", ICONS.bars],
+  ["tx", "Transactions", ICONS.list],
+  ["plan", "Plan", ICONS.sliders],
+];
+
 function tabbar() {
   const nav = $("tabbar");
-  const tabs =
-    MODE === "classic"
-      ? [
-          ["tx", "Transactions", ICONS.list],
-          ["budget", "Budget", ICONS.bars],
-          ["plan", "Plan", ICONS.sliders],
-        ]
-      : [
-          ["env", "Envelopes", ICONS.envelope],
-          ["activity", "Activity", ICONS.list],
-        ];
+  const keepFoot = ROUTE && ROUTE.name === "plan" ? nav.querySelector(".planfoot") : null;
   nav.innerHTML = "";
-  for (const [name, label, icon] of tabs) {
+  if (ROUTE && ROUTE.name === "plan") {
+    nav.appendChild(keepFoot || document.createElement("div"));
+    if (!keepFoot) nav.lastChild.className = "planfoot";
+  }
+  const tabsRow = document.createElement("div");
+  tabsRow.className = "tabsrow";
+  for (const [name, label, icon] of TABS) {
     const b = document.createElement("button");
     b.className = ROUTE && ROUTE.name === name ? "on" : "";
-    b.innerHTML = icon + `<span>${label}</span>`;
+    b.innerHTML = icon + `<span>${label}</span>` + (name === "tx" && UNCATEGORIZED > 0 ? '<span class="badge"></span>' : "");
     b.onclick = () => go({ name });
-    nav.appendChild(b);
+    tabsRow.appendChild(b);
   }
+  nav.appendChild(tabsRow);
 }
 
 const KIND_LABEL = { expense: "Expense", income: "Income", transfer: "Transfer" };
@@ -417,19 +421,6 @@ function renderSplitForm(dlg, tx, existingSplits, cats, onDone) {
   }
 }
 
-function groupByDate(txs) {
-  const groups = [];
-  let cur = null;
-  for (const t of txs) {
-    if (!cur || cur.date !== t.date) {
-      cur = { date: t.date, txs: [] };
-      groups.push(cur);
-    }
-    cur.txs.push(t);
-  }
-  return groups;
-}
-
 // ---------- classic: transactions ----------
 
 async function renderTx() {
@@ -489,8 +480,21 @@ async function renderBudget() {
   const v = view();
   v.innerHTML = "";
 
+  if (ov.uncategorized > 0) {
+    const tray = document.createElement("button");
+    tray.className = "tray";
+    tray.style.width = "100%";
+    tray.innerHTML = `<span style="font-size: 14px"><strong>${ov.uncategorized}</strong> to file</span>
+      <span style="font-size: 13px; font-weight: 600; color: var(--accent)">Review →</span>`;
+    tray.onclick = () => go({ name: "tx" });
+    v.appendChild(tray);
+  }
+
   if (!ov.budgets.length) {
-    v.innerHTML = `<div class="empty">No budgets set for ${monthLabel(MONTH)} yet.</div>`;
+    const empty = document.createElement("div");
+    empty.className = "empty";
+    empty.textContent = `No budgets set for ${monthLabel(MONTH)} yet.`;
+    v.appendChild(empty);
     const row = document.createElement("div");
     row.className = "btnrow";
     const set = document.createElement("button");
@@ -551,7 +555,7 @@ async function renderBudget() {
         <span class="mono" style="font-size: 13px; ${over ? "color: var(--over)" : ""}">${fmtInt(s)} <span style="color: var(--faint)">/ ${b > 0 ? fmtInt(b) : "—"}</span></span>
       </div>
       <div class="track"><div class="fill${over ? " overc" : b > 0 && s >= b ? " done" : ""}" style="width: ${b > 0 ? pct : 4}%"></div></div>`;
-    row.onclick = () => go({ name: "envdetail", arg: c.name, from: "budget" });
+    row.onclick = () => go({ name: "category", arg: c.name });
     v.appendChild(row);
   }
 
@@ -568,6 +572,7 @@ async function renderPlan() {
   const d = derive(ov);
   const v = view();
   v.innerHTML = "";
+  v.style.paddingBottom = "150px";
 
   const edits = {}; // category -> amount
 
@@ -577,20 +582,39 @@ async function renderPlan() {
   title.textContent = "Set budgets — " + monthLabel(MONTH);
   v.appendChild(title);
 
-  const addWrap = document.createElement("div");
-  addWrap.style.cssText = "display: flex; gap: 8px; margin-top: 14px; align-items: center; flex-wrap: wrap";
+  const datalist = document.createElement("datalist");
+  datalist.id = "groupNames";
+  const allGroups = [...new Set(ov.categories.map((c) => c.group_name).filter(Boolean))];
+  datalist.innerHTML = allGroups.map((g) => `<option value="${esc(g)}">`).join("");
+  v.appendChild(datalist);
+
+  const topRow = document.createElement("div");
+  topRow.style.cssText = "display: flex; gap: 8px; margin-top: 14px; align-items: center; flex-wrap: wrap";
   const addBtn = document.createElement("button");
   addBtn.className = "btn ghost";
   addBtn.textContent = "+ Add budget";
-  addWrap.appendChild(addBtn);
-  v.appendChild(addWrap);
+  const copyBtn = document.createElement("button");
+  copyBtn.className = "btn ghost small";
+  copyBtn.textContent = "Copy last month";
+  copyBtn.onclick = async () => {
+    await api("/budgets/copy", { method: "POST", body: JSON.stringify({ to: MONTH }) });
+    renderPlan();
+  };
+  topRow.appendChild(addBtn);
+  topRow.appendChild(copyBtn);
+  v.appendChild(topRow);
 
   addBtn.onclick = () => {
-    addWrap.innerHTML = "";
+    topRow.innerHTML = "";
     const nameInput = document.createElement("input");
     nameInput.className = "amtin";
-    nameInput.style.width = "140px";
+    nameInput.style.width = "120px";
     nameInput.placeholder = "Name";
+    const groupInput = document.createElement("input");
+    groupInput.className = "amtin";
+    groupInput.style.width = "120px";
+    groupInput.placeholder = "Group (optional)";
+    groupInput.setAttribute("list", "groupNames");
     let kind = "expense";
     const kindWrap = document.createElement("div");
     kindWrap.style.cssText = "display: flex; gap: 4px";
@@ -613,7 +637,10 @@ async function renderPlan() {
       const name = nameInput.value.trim();
       if (!name) return;
       confirmBtn.textContent = "Adding…";
-      const r = await api("/categories", { method: "POST", body: JSON.stringify({ name, kind }) });
+      const r = await api("/categories", {
+        method: "POST",
+        body: JSON.stringify({ name, kind, group_name: groupInput.value.trim() || undefined }),
+      });
       if (r.error) {
         alert(r.error);
         confirmBtn.textContent = "Add";
@@ -621,30 +648,78 @@ async function renderPlan() {
       }
       renderPlan();
     };
-    addWrap.appendChild(nameInput);
-    addWrap.appendChild(kindWrap);
-    addWrap.appendChild(confirmBtn);
+    topRow.appendChild(nameInput);
+    topRow.appendChild(groupInput);
+    topRow.appendChild(kindWrap);
+    topRow.appendChild(confirmBtn);
     nameInput.focus();
   };
 
-  const summary = document.createElement("div");
+  // The Allocated/Unallocated summary lives fixed in the tab bar (see
+  // tabbar()), so it's always visible while editing, keyboard or not.
+  const footEl = $("tabbar").querySelector(".planfoot");
   const updateSummary = () => {
+    if (!footEl) return;
     let alloc = 0, incB = 0;
     for (const c of d.expense) alloc += edits[c.name] ?? (d.budget[c.name] || 0);
     for (const c of d.income) incB += edits[c.name] ?? (d.budget[c.name] || 0);
-    summary.innerHTML = `
-      <div style="display: flex; justify-content: space-between; padding: 12px 0; border-top: 2px solid var(--ink); margin-top: 14px">
+    footEl.innerHTML = `
+      <div style="display: flex; justify-content: space-between">
         <span style="font-size: 13px; color: var(--muted)">Allocated</span>
         <span class="mono" style="font-size: 14px">$${fmtInt(alloc)}${incB ? ` <span style="color: var(--faint)">of $${fmtInt(incB)}</span>` : ""}</span>
       </div>
       ${incB ? `<div style="display: flex; justify-content: space-between; font-size: 13px; color: var(--muted)"><span>Unallocated (to savings)</span><span class="mono" style="color: var(--green)">$${fmtInt(incB - alloc)}</span></div>` : ""}`;
   };
 
+  const startRename = (c, nameBtn) => {
+    const wrap = document.createElement("div");
+    wrap.className = "renamewrap";
+    const nameIn = document.createElement("input");
+    nameIn.className = "renamein";
+    nameIn.value = c.name;
+    const groupIn = document.createElement("input");
+    groupIn.className = "renamein";
+    groupIn.placeholder = "Group (optional)";
+    groupIn.value = c.group_name || "";
+    groupIn.setAttribute("list", "groupNames");
+    const ok = document.createElement("button");
+    ok.className = "step";
+    ok.textContent = "✓";
+    ok.onclick = async () => {
+      const newName = nameIn.value.trim();
+      if (!newName) return;
+      const r = await api(`/categories/${encodeURIComponent(c.name)}`, {
+        method: "PUT",
+        body: JSON.stringify({ name: newName, group_name: groupIn.value.trim() || null }),
+      });
+      if (r.error) {
+        alert(r.error);
+        return;
+      }
+      renderPlan();
+    };
+    const cancel = document.createElement("button");
+    cancel.className = "step";
+    cancel.textContent = "×";
+    cancel.onclick = () => wrap.replaceWith(nameBtn);
+    wrap.appendChild(nameIn);
+    wrap.appendChild(groupIn);
+    wrap.appendChild(ok);
+    wrap.appendChild(cancel);
+    nameBtn.replaceWith(wrap);
+    nameIn.focus();
+  };
+
   const mkRow = (c, step) => {
     const cur = d.budget[c.name] || 0;
     const row = document.createElement("div");
     row.className = "srow";
-    row.innerHTML = `<span class="name">${esc(c.name)}</span>`;
+    const nameBtn = document.createElement("button");
+    nameBtn.type = "button";
+    nameBtn.className = "name";
+    nameBtn.textContent = c.name;
+    nameBtn.onclick = () => startRename(c, nameBtn);
+    row.appendChild(nameBtn);
     const minus = document.createElement("button");
     minus.className = "step";
     minus.textContent = "−";
@@ -699,239 +774,39 @@ async function renderPlan() {
     return row;
   };
 
-  const lblI = document.createElement("div");
-  lblI.className = "lbl datehead";
-  lblI.textContent = "Expected income";
-  v.appendChild(lblI);
-  for (const c of d.income) v.appendChild(mkRow(c, 100));
+  // Categories in a kind, clustered under any group they belong to.
+  const renderKindSection = (label, cats, step) => {
+    const lbl = document.createElement("div");
+    lbl.className = "lbl datehead";
+    lbl.textContent = label;
+    v.appendChild(lbl);
 
-  const lblE = document.createElement("div");
-  lblE.className = "lbl datehead";
-  lblE.textContent = "Monthly budgets";
-  v.appendChild(lblE);
-  for (const c of d.expense) v.appendChild(mkRow(c, 10));
-
-  const lblT = document.createElement("div");
-  lblT.className = "lbl datehead";
-  lblT.textContent = "Transfers — not counted in totals";
-  v.appendChild(lblT);
-  for (const c of d.transfer) v.appendChild(mkRow(c, 10));
-
-  v.appendChild(summary);
-  updateSummary();
-
-  const row = document.createElement("div");
-  row.className = "btnrow";
-  row.style.marginTop = "14px";
-  const copy = document.createElement("button");
-  copy.className = "btn ghost grow";
-  copy.textContent = "Copy last month";
-  copy.onclick = async () => {
-    await api("/budgets/copy", { method: "POST", body: JSON.stringify({ to: MONTH }) });
-    renderPlan();
-  };
-  row.appendChild(copy);
-  v.appendChild(row);
-}
-
-// ---------- envelopes: home ----------
-
-async function renderEnv() {
-  const ov = await getOverview();
-  const d = derive(ov);
-  const v = view();
-  v.innerHTML = "";
-
-  const budgeted = d.expense.filter((c) => (d.budget[c.name] || 0) > 0);
-  let leftAll = 0;
-  for (const c of budgeted) leftAll += (d.budget[c.name] || 0) - Math.max(0, d.spent[c.name] || 0);
-  const di = daysInfo();
-
-  const hero = document.createElement("div");
-  hero.className = "hero";
-  hero.style.padding = "10px 0";
-  hero.innerHTML = `<span class="lbl">Across all envelopes </span>
-    <span class="mono" style="font-size: 24px; color: ${leftAll < 0 ? "var(--over)" : "var(--accent)"}">$${fmtInt(leftAll)}</span>
-    <span style="font-size: 12px; color: var(--muted)"> left${di ? ` · ${di.left} days` : ""}</span>`;
-  v.appendChild(hero);
-
-  if (ov.uncategorized > 0) {
-    const tray = document.createElement("button");
-    tray.className = "tray";
-    tray.style.width = "100%";
-    tray.innerHTML = `
-      <span style="display: flex; align-items: center; gap: 10px; color: var(--accent)">${ICONS.envelope}
-        <span style="color: var(--ink); font-size: 14px"><strong>Unsorted tray</strong> · ${ov.uncategorized} new</span></span>
-      <span style="font-size: 13px; font-weight: 600; color: var(--accent)">Sort now →</span>`;
-    tray.onclick = () => go({ name: "sort" });
-    v.appendChild(tray);
-  }
-
-  const grid = document.createElement("div");
-  grid.className = "envgrid";
-  for (const c of budgeted) {
-    const b = d.budget[c.name] || 0;
-    const s = Math.max(0, d.spent[c.name] || 0);
-    const left = b - s;
-    const over = left < 0;
-    const pct = Math.min(100, (s / b) * 100);
-    const env = document.createElement("button");
-    env.className = "env" + (over ? " overe" : "");
-    env.innerHTML = `
-      <span class="tab"></span>
-      <span class="nm" style="${over ? "color: var(--over)" : ""}">${esc(c.name)}</span>
-      <span><span class="left mono" style="${over ? "color: var(--over)" : ""}">${over ? "−$" + fmtInt(-left) : "$" + fmtInt(left)}</span>
-        <span class="sub"> ${over ? "over" : "left of"} ${fmtInt(b)}</span></span>
-      <span class="track"><span class="fill${over ? " overc" : ""}" style="display: block; width: ${pct}%"></span></span>`;
-    env.onclick = () => go({ name: "envdetail", arg: c.name });
-    grid.appendChild(env);
-  }
-  const unbudgeted = d.expense.filter((c) => !(d.budget[c.name] > 0));
-  if (unbudgeted.length) {
-    const add = document.createElement("button");
-    add.className = "env";
-    add.style.cssText = "border-style: dashed; background: var(--bg); align-items: center; justify-content: center; color: var(--faint)";
-    add.innerHTML = `<span style="font-size: 22px; line-height: 1">+</span><span style="font-size: 12px">New envelope</span>`;
-    add.onclick = () => {
-      add.replaceWith(...unbudgeted.map((c) => {
-        const e = document.createElement("button");
-        e.className = "env";
-        e.style.borderStyle = "dashed";
-        e.innerHTML = `<span class="nm">${esc(c.name)}</span><span class="sub">tap to set a budget</span>`;
-        e.onclick = () => go({ name: "envdetail", arg: c.name });
-        return e;
-      }));
-    };
-    grid.appendChild(add);
-  }
-  v.appendChild(grid);
-
-  if (!budgeted.length) {
-    const e = document.createElement("div");
-    e.className = "empty";
-    e.innerHTML = "No envelopes yet — tap <strong>+ New envelope</strong> above, or ";
-    const a = document.createElement("a");
-    a.href = "#";
-    a.textContent = "copy last month";
-    a.onclick = async (ev) => {
-      ev.preventDefault();
-      await api("/budgets/copy", { method: "POST", body: JSON.stringify({ to: MONTH }) });
-      renderEnv();
-    };
-    e.appendChild(a);
-    v.appendChild(e);
-  }
-}
-
-// ---------- envelopes: sort ----------
-
-const SKIPPED = new Set();
-
-async function renderSort() {
-  const [ov, allUncat] = await Promise.all([getOverview(), api("/transactions?status=uncategorized")]);
-  const v = view();
-  v.innerHTML = "";
-
-  let uncat = allUncat.filter((t) => !SKIPPED.has(t.tx_id));
-  if (!uncat.length && allUncat.length) {
-    // everything left was skipped this pass — start over next time
-    SKIPPED.clear();
-    go({ name: "env" });
-    return;
-  }
-  if (!uncat.length) {
-    const b = document.createElement("div");
-    b.className = "banner";
-    b.innerHTML = ICONS.check + "<span><strong>Tray empty.</strong> Everything is in an envelope.</span>";
-    v.appendChild(b);
-    setTimeout(() => go({ name: "env" }), 900);
-    return;
-  }
-
-  const d = derive(ov);
-  const t = uncat[0];
-
-  const top = document.createElement("div");
-  top.style.cssText = "display: flex; justify-content: space-between; align-items: center; margin-top: 8px";
-  top.innerHTML = `<button class="backlink" id="sortBack">${ICONS.back}<span>Envelopes</span></button>
-    <span class="lbl">Unsorted · ${uncat.length} left</span><span style="width: 90px"></span>`;
-  v.appendChild(top);
-  top.querySelector("#sortBack").onclick = () => go({ name: "env" });
-
-  const card = document.createElement("div");
-  card.className = "card";
-  card.style.cssText = "margin-top: 16px; padding: 20px; display: flex; flex-direction: column; align-items: center; gap: 6px";
-  card.innerHTML = `
-    <span class="lbl">${fmtDay(t.date)}</span>
-    <span class="serif" style="font-size: 26px; text-align: center">${esc(t.merchant || "(no name)")}</span>
-    <span class="mono ${t.amount < 0 ? "amt in" : ""}" style="font-size: 32px">$${fmtAmt(t.amount)}</span>`;
-  v.appendChild(card);
-
-  const lbl = document.createElement("div");
-  lbl.className = "lbl";
-  lbl.style.cssText = "text-align: center; margin: 14px 0 4px";
-  lbl.textContent = "Drop it in an envelope";
-  v.appendChild(lbl);
-
-  const rule = document.createElement("label");
-  rule.className = "rule";
-  rule.style.justifyContent = "center";
-  rule.innerHTML = `<input type="checkbox"><span>"${esc(t.merchant || "?")}" always goes here</span>`;
-
-  const doFile = async (name) => {
-    card.style.opacity = "0.4";
-    await fileTx(t.tx_id, name, rule.querySelector("input").checked);
-    renderSort();
-  };
-
-  const grid = document.createElement("div");
-  grid.className = "envgrid";
-  const budgeted = d.expense.filter((c) => (d.budget[c.name] || 0) > 0);
-  const shown = budgeted.length ? budgeted : d.expense;
-  for (const c of shown) {
-    const b = d.budget[c.name] || 0;
-    const s = Math.max(0, d.spent[c.name] || 0);
-    const left = b - s;
-    const env = document.createElement("button");
-    env.className = "env";
-    env.innerHTML = `<span class="tab"></span><span class="nm">${esc(c.name)}</span>
-      <span class="sub">${b > 0 ? (left < 0 ? "already over" : `<span class="mono">$${fmtInt(left)}</span> left → <span class="mono">$${fmtInt(left - Math.max(0, t.amount))}</span> after`) : "no budget"}</span>`;
-    env.onclick = () => doFile(c.name);
-    grid.appendChild(env);
-  }
-  const more = document.createElement("button");
-  more.className = "env";
-  more.style.borderStyle = "dashed";
-  more.innerHTML = `<span class="nm">All categories…</span><span class="sub">income, transfers &amp; the rest</span>`;
-  more.onclick = () => {
-    more.remove();
-    const others = ov.categories.filter((c) => !shown.includes(c));
-    for (const c of others) {
-      const e = document.createElement("button");
-      e.className = "env";
-      e.innerHTML = `<span class="nm">${esc(c.name)}</span><span class="sub">${c.kind}</span>`;
-      e.onclick = () => doFile(c.name);
-      grid.appendChild(e);
+    const groups = {};
+    const ungrouped = [];
+    for (const c of cats) {
+      if (c.group_name) (groups[c.group_name] ||= []).push(c);
+      else ungrouped.push(c);
     }
+    for (const g of Object.keys(groups).sort((a, b) => a.localeCompare(b))) {
+      const gh = document.createElement("div");
+      gh.className = "grouphead";
+      gh.textContent = g;
+      v.appendChild(gh);
+      for (const c of groups[g]) v.appendChild(mkRow(c, step));
+    }
+    for (const c of ungrouped) v.appendChild(mkRow(c, step));
   };
-  grid.appendChild(more);
-  v.appendChild(grid);
 
-  v.appendChild(rule);
-  const skip = document.createElement("button");
-  skip.className = "btn ghost";
-  skip.style.cssText = "width: 100%; margin-top: 12px";
-  skip.textContent = "Skip for now";
-  skip.onclick = () => {
-    SKIPPED.add(t.tx_id);
-    renderSort();
-  };
-  v.appendChild(skip);
+  renderKindSection("Expected income", d.income, 100);
+  renderKindSection("Monthly budgets", d.expense, 10);
+  renderKindSection("Transfers — not counted in totals", d.transfer, 10);
+
+  updateSummary();
 }
 
-// ---------- envelope detail (used by both modes) ----------
+// ---------- category detail ----------
 
-async function renderEnvDetail(cat, from) {
+async function renderCategoryDetail(cat) {
   const [ov, txs] = await Promise.all([
     getOverview(),
     api(`/transactions?month=${MONTH}&category=${encodeURIComponent(cat)}`),
@@ -942,8 +817,8 @@ async function renderEnvDetail(cat, from) {
 
   const back = document.createElement("button");
   back.className = "backlink";
-  back.innerHTML = ICONS.back + `<span>${from === "budget" ? "Budget" : MODE === "classic" ? "Budget" : "Envelopes"}</span>`;
-  back.onclick = () => go({ name: MODE === "classic" ? "budget" : "env" });
+  back.innerHTML = ICONS.back + "<span>Budget</span>";
+  back.onclick = () => go({ name: "budget" });
   v.appendChild(back);
 
   const title = document.createElement("div");
@@ -976,7 +851,7 @@ async function renderEnvDetail(cat, from) {
 
   const stepRow = document.createElement("div");
   stepRow.style.cssText = "display: flex; align-items: center; justify-content: space-between";
-  stepRow.innerHTML = `<span class="lbl">Envelope size</span>`;
+  stepRow.innerHTML = `<span class="lbl">Budget</span>`;
   const ctr = document.createElement("div");
   ctr.style.cssText = "display: flex; align-items: center; gap: 6px";
   const minus = document.createElement("button");
@@ -1026,7 +901,7 @@ async function renderEnvDetail(cat, from) {
 
   const lbl = document.createElement("div");
   lbl.className = "lbl datehead";
-  lbl.textContent = `${MODE === "classic" ? "This month" : "In this envelope"} · ${txs.length}`;
+  lbl.textContent = `This month · ${txs.length}`;
   v.appendChild(lbl);
   if (!txs.length) {
     const e = document.createElement("div");
@@ -1034,41 +909,7 @@ async function renderEnvDetail(cat, from) {
     e.textContent = "Nothing here this month.";
     v.appendChild(e);
   }
-  for (const t of txs) v.appendChild(registerRow(t, ov.categories, () => renderEnvDetail(cat, from)));
-}
-
-// ---------- activity (envelopes mode) ----------
-
-async function renderActivity() {
-  const [ov, txs] = await Promise.all([getOverview(), api("/transactions?month=" + MONTH)]);
-  const v = view();
-  v.innerHTML = "";
-
-  if (ov.uncategorized > 0) {
-    const tray = document.createElement("button");
-    tray.className = "tray";
-    tray.style.width = "100%";
-    tray.innerHTML = `<span style="font-size: 14px"><strong>${ov.uncategorized} unsorted</strong></span>
-      <span style="font-size: 13px; font-weight: 600; color: var(--accent)">Sort now →</span>`;
-    tray.onclick = () => go({ name: "sort" });
-    v.appendChild(tray);
-  }
-
-  const withCat = txs.filter((t) => t.category || t.categorized_by === "split");
-  if (!withCat.length) {
-    const e = document.createElement("div");
-    e.className = "empty";
-    e.textContent = "No activity this month yet.";
-    v.appendChild(e);
-    return;
-  }
-  for (const g of groupByDate(withCat)) {
-    const h = document.createElement("div");
-    h.className = "lbl datehead";
-    h.textContent = fmtDay(g.date);
-    v.appendChild(h);
-    for (const t of g.txs) v.appendChild(registerRow(t, ov.categories, renderActivity));
-  }
+  for (const t of txs) v.appendChild(registerRow(t, ov.categories, () => renderCategoryDetail(cat)));
 }
 
 // ---------- settings ----------
@@ -1089,28 +930,16 @@ async function renderSettings() {
   title.textContent = "Settings";
   v.appendChild(title);
 
-  const lbl = document.createElement("div");
-  lbl.className = "lbl datehead";
-  lbl.textContent = "Layout";
-  v.appendChild(lbl);
+  const lblN = document.createElement("div");
+  lblN.className = "lbl datehead";
+  lblN.textContent = "Notifications";
+  v.appendChild(lblN);
 
-  const opts = document.createElement("div");
-  opts.style.cssText = "display: flex; gap: 10px; margin-top: 8px";
-  const mk = (mode, t, s) => {
-    const o = document.createElement("button");
-    o.className = "opt" + (MODE === mode ? " sel" : "");
-    o.innerHTML = `<span class="t">${t}</span><span class="s">${s}</span>`;
-    o.onclick = () => {
-      MODE = mode;
-      localStorage.setItem("layoutMode", mode);
-      renderSettings();
-      tabbar();
-    };
-    return o;
-  };
-  opts.appendChild(mk("classic", "Classic ledger", "Tabs: transactions, budget, plan. The register view."));
-  opts.appendChild(mk("envelopes", "Envelopes", "Budgets as envelopes; new transactions land in a tray."));
-  v.appendChild(opts);
+  const pushRow = document.createElement("button");
+  pushRow.className = "setrow";
+  pushRow.innerHTML = `<span>Push notifications</span><span style="color: var(--faint)">checking…</span>`;
+  v.appendChild(pushRow);
+  setUpPushRow(pushRow);
 
   const lbl2 = document.createElement("div");
   lbl2.className = "lbl datehead";
@@ -1153,10 +982,91 @@ async function renderSettings() {
   };
   v.appendChild(out);
 
+  const lbl3 = document.createElement("div");
+  lbl3.className = "lbl datehead";
+  lbl3.textContent = "Months";
+  v.appendChild(lbl3);
+
+  const realCur = new Date().toISOString().slice(0, 7);
+  if (LATEST_MONTH > realCur) {
+    const delMonth = document.createElement("button");
+    delMonth.className = "setrow";
+    delMonth.innerHTML = `<span>Delete ${esc(monthLabel(LATEST_MONTH))}</span><span style="color: var(--over)">undo</span>`;
+    delMonth.onclick = async () => {
+      if (!confirm(`Delete ${monthLabel(LATEST_MONTH)}? Its budgets will be removed too.`)) return;
+      const r = await api("/months/latest", { method: "DELETE" });
+      if (r.error) {
+        alert(r.error);
+        return;
+      }
+      if (MONTH >= LATEST_MONTH) MONTH = shiftMonth(MONTH, -1);
+      LATEST_MONTH = realCur;
+      renderSettings();
+    };
+    v.appendChild(delMonth);
+  } else {
+    const mnote = document.createElement("div");
+    mnote.className = "screen-note";
+    mnote.style.padding = "8px 0";
+    mnote.textContent = "No set-up month ahead of today to delete.";
+    v.appendChild(mnote);
+  }
+
   const note = document.createElement("div");
   note.className = "screen-note";
   note.textContent = "Ledger — your money, on paper.";
   v.appendChild(note);
+}
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(base64);
+  const arr = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+  return arr;
+}
+
+async function setUpPushRow(row) {
+  const status = row.querySelector("span:last-child");
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+    status.textContent = "not supported on this browser";
+    return;
+  }
+  const reg = await navigator.serviceWorker.ready;
+  const sub = await reg.pushManager.getSubscription();
+  const paint = (subscribed) => {
+    status.textContent = subscribed ? "on · tap to turn off" : "off · tap to turn on";
+  };
+  paint(!!sub);
+  row.onclick = async () => {
+    const reg2 = await navigator.serviceWorker.ready;
+    const existing = await reg2.pushManager.getSubscription();
+    if (existing) {
+      await api("/push/unsubscribe", {
+        method: "POST",
+        body: JSON.stringify({ endpoint: existing.endpoint }),
+      });
+      await existing.unsubscribe();
+      paint(false);
+      return;
+    }
+    if (Notification.permission === "denied") {
+      alert("Notifications are blocked for this site — check your browser or device settings.");
+      return;
+    }
+    const { key } = await api("/push/vapid_public_key");
+    if (!key) {
+      alert("Push notifications aren't configured on the server yet.");
+      return;
+    }
+    const newSub = await reg2.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(key),
+    });
+    await api("/push/subscribe", { method: "POST", body: JSON.stringify(newSub.toJSON()) });
+    paint(true);
+  };
 }
 
 async function connectBank() {
@@ -1177,26 +1087,24 @@ async function connectBank() {
 // ---------- router ----------
 
 function defaultRoute() {
-  return { name: MODE === "classic" ? "tx" : "env" };
+  return { name: "budget" };
 }
 
 const RENDERERS = {
   tx: renderTx,
   budget: renderBudget,
   plan: renderPlan,
-  env: renderEnv,
-  sort: renderSort,
-  activity: renderActivity,
   settings: renderSettings,
-  envdetail: (r) => renderEnvDetail(r.arg, r.from),
+  category: (r) => renderCategoryDetail(r.arg),
 };
 
 function go(route) {
   ROUTE = route;
   tabbar();
-  $("tabbar").style.display = ["sort", "settings"].includes(route.name) ? "none" : "flex";
+  $("tabbar").style.display = route.name === "settings" ? "none" : "flex";
+  view().style.paddingBottom = "";
   view().innerHTML = '<div class="empty">Loading…</div>';
-  const fn = RENDERERS[route.name] || renderTx;
+  const fn = RENDERERS[route.name] || renderBudget;
   Promise.resolve(fn(route)).catch((e) => {
     if (e.message !== "unauthorized") {
       view().innerHTML = '<div class="empty">Couldn\'t load — pull to refresh or check your connection.</div>';

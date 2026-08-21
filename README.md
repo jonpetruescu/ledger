@@ -4,14 +4,10 @@ Your personal finance app. Plaid pulls transactions from
 your banks, a Cloudflare Worker stores them in a D1 database, and a PWA on
 your phone lets you file each one with a tap and track budgets.
 
-Two layouts, switchable in Settings (the gear icon):
-
-- **Classic ledger** — tabs for Transactions, Budget, and Plan. A paper
-  register: file from the to-do stack, watch category bars, set budgets in
-  a grid.
-- **Envelopes** — budgets are envelope cards showing what's left in each;
-  new transactions land in an Unsorted tray you empty one at a time, and
-  each envelope's size is edited right inside it.
+Budget is the home screen, with tabs for Transactions and Plan. A paper
+register: file from the to-do stack (or split one transaction across several
+categories), watch category bars, set budgets — with optional groups —
+in a grid.
 
 ## Before you start (can do from your phone)
 
@@ -41,6 +37,11 @@ npx wrangler d1 execute shoebox --remote --file=schema.sql
 npx wrangler secret put PLAID_CLIENT_ID
 npx wrangler secret put PLAID_SECRET      # the SANDBOX secret for now
 npx wrangler secret put APP_PASSWORD      # you pick this — it's the app login
+
+# Push notifications (optional): generate a VAPID keypair and set it
+npx wrangler secret put VAPID_PUBLIC_KEY
+npx wrangler secret put VAPID_PRIVATE_KEY
+npx wrangler secret put VAPID_SUBJECT_EMAIL   # a contact email for push services
 
 # Ship it
 npx wrangler deploy
@@ -84,9 +85,11 @@ npx wrangler dev                 # runs at http://localhost:8787
 - [x] Session 1: Plaid sandbox → D1 → categorize PWA
 - [x] Session 2: budgets, monthly summary, two switchable layouts
       (classic ledger / envelopes), app renamed Ledger
-- [ ] Session 3: web push notifications on new transactions
-      (service worker handlers are already in `public/sw.js`; the Worker
-      needs VAPID keys + a send on webhook — marked TODO in `src/index.js`)
+- [x] Session 3: budget CRUD + groups, transaction splitting, month
+      capping with an explicit "set up next month" step, web push
+      notifications on new transactions (set the `VAPID_*` secrets above
+      to turn it on), envelopes mode retired in favor of Budget as the
+      home screen
 - [ ] Session 4: apply for Plaid's free Trial production plan, connect
       real banks (set `PLAID_ENV = "production"` and the production secret)
 - [ ] Later: dashboards, reports, native iOS app

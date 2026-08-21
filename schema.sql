@@ -22,7 +22,8 @@ CREATE INDEX IF NOT EXISTS idx_tx_uncat ON transactions (category) WHERE categor
 CREATE TABLE IF NOT EXISTS categories (
   name TEXT PRIMARY KEY,
   kind TEXT NOT NULL DEFAULT 'expense',   -- 'expense' | 'income' | 'transfer'
-  sort_order INTEGER NOT NULL DEFAULT 0
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  group_name TEXT                         -- optional, e.g. "Subscriptions", "Bills"
 );
 
 CREATE TABLE IF NOT EXISTS rules (
