@@ -274,10 +274,16 @@ function openSplitModal(txId, cats, onDone) {
 
   // On mobile, the on-screen keyboard shrinks the visual viewport but not
   // the layout viewport a <dialog> sizes against, which can push the fixed
-  // Assigned/Remaining/Save footer out of reach. Track it explicitly.
+  // Assigned/Remaining/Save footer out of reach. Track it explicitly — but
+  // only step in once something has actually shrunk the visible area by
+  // roughly a keyboard's worth (Safari's address bar toggling between
+  // expanded/collapsed alone shifts visualViewport.height by a lot less
+  // than that, and reacting to it there was squeezing the card list down
+  // to nothing before it ever got a chance to render).
   if (window.visualViewport) {
     const fit = () => {
-      dlg.style.maxHeight = window.visualViewport.height * 0.92 + "px";
+      const shrink = window.innerHeight - window.visualViewport.height;
+      dlg.style.maxHeight = shrink > 150 ? Math.max(320, window.visualViewport.height * 0.92) + "px" : "";
     };
     fit();
     window.visualViewport.addEventListener("resize", fit);
