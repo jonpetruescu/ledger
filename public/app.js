@@ -654,16 +654,16 @@ async function renderBudget() {
     const projected = (d.totSpent / di.day) * di.dim;
     paceNote =
       diff <= 0
-        ? `<div style="font-size: 13px; color: var(--green)">On pace to finish about $${fmtInt(d.totBudget - projected)} under budget.</div>`
-        : `<div style="font-size: 13px; color: var(--over)">Running $${fmtInt(diff)} ahead of an even pace.</div>`;
+        ? `<div style="font-size: 13px; color: var(--green)">On pace to finish about $${fmtAmount(d.totBudget - projected)} under budget.</div>`
+        : `<div style="font-size: 13px; color: var(--over)">Running $${fmtAmount(diff)} ahead of an even pace.</div>`;
   }
   const hero = document.createElement("div");
   hero.className = "hero";
   hero.innerHTML = `
     <div class="lbl">Left to spend</div>
     <div style="display: flex; align-items: baseline; gap: 10px">
-      <span class="big mono" style="color: ${left < 0 ? "var(--over)" : "var(--ink)"}">$${fmtInt(left)}</span>
-      <span style="font-size: 13px; color: var(--muted)">of $${fmtInt(d.totBudget)}${di ? ` · ${di.left} days left` : ""}</span>
+      <span class="big mono" style="color: ${left < 0 ? "var(--over)" : "var(--ink)"}">$${fmtAmount(left)}</span>
+      <span style="font-size: 13px; color: var(--muted)">of $${fmtAmount(d.totBudget)}${di ? ` · ${di.left} days left` : ""}</span>
     </div>${paceNote}`;
   v.appendChild(hero);
 
@@ -683,7 +683,7 @@ async function renderBudget() {
     row.innerHTML = `
       <div class="btop">
         <span style="font-size: 14px; ${over ? "color: var(--over); font-weight: 600" : ""}">${esc(c.name)}${over ? " · over" : ""}</span>
-        <span class="mono" style="font-size: 13px; ${over ? "color: var(--over)" : ""}">${fmtInt(s)} <span style="color: var(--faint)">/ ${b > 0 ? fmtInt(b) : "—"}</span></span>
+        <span class="mono" style="font-size: 13px; ${over ? "color: var(--over)" : ""}">${fmtAmount(s)} <span style="color: var(--faint)">/ ${b > 0 ? fmtAmount(b) : "—"}</span></span>
       </div>
       <div class="track"><div class="fill${over ? " overc" : b > 0 && s >= b ? " done" : ""}" style="width: ${b > 0 ? pct : 4}%"></div></div>`;
     row.onclick = () => go({ name: "category", arg: c.name });
@@ -692,7 +692,7 @@ async function renderBudget() {
 
   const inc = document.createElement("div");
   inc.style.cssText = "margin-top: 12px; padding-top: 10px; font-size: 13px; color: var(--muted)";
-  inc.innerHTML = `Income so far <span class="mono" style="color: var(--green)">$${fmtInt(d.incSoFar)}</span>${d.incBudget ? ` of $${fmtInt(d.incBudget)} expected` : ""}`;
+  inc.innerHTML = `Income so far <span class="mono" style="color: var(--green)">$${fmtAmount(d.incSoFar)}</span>${d.incBudget ? ` of $${fmtAmount(d.incBudget)} expected` : ""}`;
   v.appendChild(inc);
 }
 
