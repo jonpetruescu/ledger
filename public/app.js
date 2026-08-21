@@ -3,6 +3,7 @@
 let KEY = localStorage.getItem("appKey") || "";
 let MODE = localStorage.getItem("layoutMode") || "classic"; // "classic" | "envelopes"
 let MONTH = new Date().toISOString().slice(0, 7);
+let LATEST_MONTH = MONTH; // furthest month you're allowed to view; refreshed from /overview
 let ROUTE = null; // {name, arg}
 
 const $ = (id) => document.getElementById(id);
@@ -85,7 +86,12 @@ function daysInfo() {
 }
 
 async function getOverview() {
-  return api("/overview?month=" + MONTH);
+  const ov = await api("/overview?month=" + MONTH);
+  if (ov.latest_month) {
+    LATEST_MONTH = ov.latest_month;
+    updateMonthNav();
+  }
+  return ov;
 }
 
 function derive(ov) {
@@ -95,6 +101,7 @@ function derive(ov) {
   for (const s of ov.spent) spent[s.category] = s.total;
   const expense = ov.categories.filter((c) => c.kind === "expense");
   const income = ov.categories.filter((c) => c.kind === "income");
+  const transfer = ov.categories.filter((c) => c.kind === "transfer");
   let totBudget = 0, totSpent = 0, incBudget = 0, incSoFar = 0;
   for (const c of expense) {
     totBudget += budget[c.name] || 0;
@@ -104,7 +111,7 @@ function derive(ov) {
     incBudget += budget[c.name] || 0;
     incSoFar += -(spent[c.name] || 0);
   }
-  return { budget, spent, expense, income, totBudget, totSpent, incBudget, incSoFar };
+  return { budget, spent, expense, income, transfer, totBudget, totSpent, incBudget, incSoFar };
 }
 
 // ---------- shared components ----------
@@ -381,6 +388,56 @@ async function renderPlan() {
   title.textContent = "Set budgets — " + monthLabel(MONTH);
   v.appendChild(title);
 
+  const addWrap = document.createElement("div");
+  addWrap.style.cssText = "display: flex; gap: 8px; margin-top: 14px; align-items: center; flex-wrap: wrap";
+  const addBtn = document.createElement("button");
+  addBtn.className = "btn ghost";
+  addBtn.textContent = "+ Add budget";
+  addWrap.appendChild(addBtn);
+  v.appendChild(addWrap);
+
+  addBtn.onclick = () => {
+    addWrap.innerHTML = "";
+    const nameInput = document.createElement("input");
+    nameInput.className = "amtin";
+    nameInput.style.width = "140px";
+    nameInput.placeholder = "Name";
+    let kind = "expense";
+    const kindWrap = document.createElement("div");
+    kindWrap.style.cssText = "display: flex; gap: 4px";
+    const kindBtns = ["expense", "income", "transfer"].map((k) => {
+      const b = document.createElement("button");
+      b.className = "chip" + (k === kind ? " sel" : "");
+      b.textContent = k[0].toUpperCase() + k.slice(1);
+      b.onclick = () => {
+        kind = k;
+        kindBtns.forEach((x) => x.classList.remove("sel"));
+        b.classList.add("sel");
+      };
+      kindWrap.appendChild(b);
+      return b;
+    });
+    const confirmBtn = document.createElement("button");
+    confirmBtn.className = "btn";
+    confirmBtn.textContent = "Add";
+    confirmBtn.onclick = async () => {
+      const name = nameInput.value.trim();
+      if (!name) return;
+      confirmBtn.textContent = "Adding…";
+      const r = await api("/categories", { method: "POST", body: JSON.stringify({ name, kind }) });
+      if (r.error) {
+        alert(r.error);
+        confirmBtn.textContent = "Add";
+        return;
+      }
+      renderPlan();
+    };
+    addWrap.appendChild(nameInput);
+    addWrap.appendChild(kindWrap);
+    addWrap.appendChild(confirmBtn);
+    nameInput.focus();
+  };
+
   const summary = document.createElement("div");
   const updateSummary = () => {
     let alloc = 0, incB = 0;
@@ -411,6 +468,15 @@ async function renderPlan() {
     const plus = document.createElement("button");
     plus.className = "step";
     plus.textContent = "+";
+    const del = document.createElement("button");
+    del.className = "step";
+    del.textContent = "×";
+    del.title = "Delete this budget";
+    del.onclick = async () => {
+      if (!confirm(`Delete "${c.name}"? Filed transactions keep the old category name.`)) return;
+      await api(`/categories/${encodeURIComponent(c.name)}`, { method: "DELETE" });
+      renderPlan();
+    };
     const setVal = (n) => {
       n = Math.max(0, n);
       edits[c.name] = n;
@@ -428,6 +494,7 @@ async function renderPlan() {
     row.appendChild(minus);
     row.appendChild(input);
     row.appendChild(plus);
+    row.appendChild(del);
     return row;
   };
 
@@ -442,6 +509,12 @@ async function renderPlan() {
   lblE.textContent = "Monthly budgets";
   v.appendChild(lblE);
   for (const c of d.expense) v.appendChild(mkRow(c, 10));
+
+  const lblT = document.createElement("div");
+  lblT.className = "lbl datehead";
+  lblT.textContent = "Transfers — not counted in totals";
+  v.appendChild(lblT);
+  for (const c of d.transfer) v.appendChild(mkRow(c, 10));
 
   v.appendChild(summary);
   updateSummary();
@@ -943,17 +1016,43 @@ function go(route) {
 }
 
 // header controls
+
+function updateMonthNav() {
+  const btn = $("mNext");
+  if (!btn) return;
+  const atBoundary = MONTH >= LATEST_MONTH;
+  btn.textContent = atBoundary ? "+" : "›";
+  btn.title = atBoundary ? "Set up next month" : "";
+  btn.setAttribute("aria-label", atBoundary ? "Set up next month" : "Next month");
+}
+
 $("mCur").textContent = monthLabel(MONTH);
 $("mPrev").onclick = () => {
   MONTH = shiftMonth(MONTH, -1);
   $("mCur").textContent = monthLabel(MONTH);
+  updateMonthNav();
   go(ROUTE || defaultRoute());
 };
-$("mNext").onclick = () => {
-  MONTH = shiftMonth(MONTH, 1);
+$("mNext").onclick = async () => {
+  const btn = $("mNext");
+  if (MONTH >= LATEST_MONTH) {
+    btn.disabled = true;
+    btn.textContent = "…";
+    try {
+      const r = await api("/months/next", { method: "POST", body: JSON.stringify({ copy: true }) });
+      MONTH = r.month;
+      LATEST_MONTH = r.month;
+    } finally {
+      btn.disabled = false;
+    }
+  } else {
+    MONTH = shiftMonth(MONTH, 1);
+  }
   $("mCur").textContent = monthLabel(MONTH);
+  updateMonthNav();
   go(ROUTE || defaultRoute());
 };
+updateMonthNav();
 $("gear").onclick = () => go({ name: "settings" });
 $("homeBtn").onclick = () => go(defaultRoute());
 

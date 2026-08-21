@@ -173,6 +173,26 @@ function autoCategory(rules, merchant) {
   return null;
 }
 
+// ---------- months ----------
+
+function todayMonth() {
+  return new Date().toISOString().slice(0, 7);
+}
+
+function shiftMonthStr(m, delta) {
+  const [y, mo] = m.split("-").map(Number);
+  const d = new Date(Date.UTC(y, mo - 1 + delta, 1));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+// The latest month allowed to view/edit: today's real month, or a later
+// month if one has been explicitly set up via /api/months/next.
+async function latestMonth(env) {
+  const cur = todayMonth();
+  const row = await env.DB.prepare("SELECT MAX(month) AS m FROM months").first();
+  return row?.m && row.m > cur ? row.m : cur;
+}
+
 // ---------- app API ----------
 
 app.get("/api/transactions", async (c) => {
@@ -232,6 +252,91 @@ app.get("/api/categories", async (c) => {
   return c.json(rows.results);
 });
 
+const KINDS = ["expense", "income", "transfer"];
+
+// Create a new budget (category). { name, kind }
+app.post("/api/categories", async (c) => {
+  const { name, kind } = await c.req.json();
+  if (!name?.trim() || !KINDS.includes(kind)) {
+    return c.json({ error: "name and a valid kind are required" }, 400);
+  }
+  const existing = await c.env.DB.prepare(
+    "SELECT 1 FROM categories WHERE name = ?"
+  )
+    .bind(name.trim())
+    .first();
+  if (existing) return c.json({ error: "a budget with that name already exists" }, 409);
+  const maxSort = await c.env.DB.prepare(
+    "SELECT COALESCE(MAX(sort_order), 0) AS m FROM categories"
+  ).first();
+  await c.env.DB.prepare(
+    "INSERT INTO categories (name, kind, sort_order) VALUES (?, ?, ?)"
+  )
+    .bind(name.trim(), kind, (maxSort?.m || 0) + 1)
+    .run();
+  return c.json({ ok: true });
+});
+
+// Rename and/or re-type a budget. { name?, kind? }
+app.put("/api/categories/:name", async (c) => {
+  const oldName = c.req.param("name");
+  const { name, kind } = await c.req.json();
+  const newName = name?.trim() || oldName;
+  if (kind && !KINDS.includes(kind)) {
+    return c.json({ error: "invalid kind" }, 400);
+  }
+  const existing = await c.env.DB.prepare(
+    "SELECT kind FROM categories WHERE name = ?"
+  )
+    .bind(oldName)
+    .first();
+  if (!existing) return c.json({ error: "not found" }, 404);
+  if (newName !== oldName) {
+    const clash = await c.env.DB.prepare(
+      "SELECT 1 FROM categories WHERE name = ?"
+    )
+      .bind(newName)
+      .first();
+    if (clash) return c.json({ error: "a budget with that name already exists" }, 409);
+  }
+  const finalKind = kind || existing.kind;
+  const stmts = [
+    c.env.DB.prepare("UPDATE categories SET name = ?, kind = ? WHERE name = ?").bind(
+      newName,
+      finalKind,
+      oldName
+    ),
+  ];
+  if (newName !== oldName) {
+    stmts.push(
+      c.env.DB.prepare("UPDATE budgets SET category = ? WHERE category = ?").bind(
+        newName,
+        oldName
+      )
+    );
+    stmts.push(
+      c.env.DB.prepare(
+        "UPDATE transactions SET category = ? WHERE category = ?"
+      ).bind(newName, oldName)
+    );
+    stmts.push(
+      c.env.DB.prepare("UPDATE rules SET category = ? WHERE category = ?").bind(
+        newName,
+        oldName
+      )
+    );
+  }
+  await c.env.DB.batch(stmts);
+  return c.json({ ok: true });
+});
+
+// Delete a budget. Existing transactions/rules keep the old category name.
+app.delete("/api/categories/:name", async (c) => {
+  const name = c.req.param("name");
+  await c.env.DB.prepare("DELETE FROM categories WHERE name = ?").bind(name).run();
+  return c.json({ ok: true });
+});
+
 app.get("/api/summary", async (c) => {
   const month = c.req.query("month"); // "2026-08"
   const rows = await c.env.DB.prepare(
@@ -240,7 +345,7 @@ app.get("/api/summary", async (c) => {
      WHERE date LIKE ? AND category IS NOT NULL
      GROUP BY category ORDER BY total DESC`
   )
-    .bind((month || new Date().toISOString().slice(0, 7)) + "%")
+    .bind((month || todayMonth()) + "%")
     .all();
   return c.json(rows.results);
 });
@@ -248,7 +353,7 @@ app.get("/api/summary", async (c) => {
 // ---------- budgets ----------
 
 app.get("/api/budgets", async (c) => {
-  const month = c.req.query("month") || new Date().toISOString().slice(0, 7);
+  const month = c.req.query("month") || todayMonth();
   const rows = await c.env.DB.prepare(
     "SELECT category, amount FROM budgets WHERE month = ?"
   )
@@ -309,8 +414,8 @@ app.post("/api/budgets/copy", async (c) => {
 
 // Everything the home screens need in one call.
 app.get("/api/overview", async (c) => {
-  const month = c.req.query("month") || new Date().toISOString().slice(0, 7);
-  const [categories, budgets, spent, uncat] = await Promise.all([
+  const month = c.req.query("month") || todayMonth();
+  const [categories, budgets, spent, uncat, latest] = await Promise.all([
     c.env.DB.prepare(
       "SELECT name, kind FROM categories ORDER BY sort_order"
     ).all(),
@@ -328,6 +433,7 @@ app.get("/api/overview", async (c) => {
     c.env.DB.prepare(
       "SELECT COUNT(*) AS n FROM transactions WHERE category IS NULL"
     ).first(),
+    latestMonth(c.env),
   ]);
   return c.json({
     month,
@@ -335,7 +441,30 @@ app.get("/api/overview", async (c) => {
     budgets: budgets.results,
     spent: spent.results,
     uncategorized: uncat?.n || 0,
+    latest_month: latest,
   });
+});
+
+// Create and move into the next month, capped to one past the real
+// calendar month at a time. { copy: boolean } copies budgets forward
+// from the current latest month, same as /api/budgets/copy.
+app.post("/api/months/next", async (c) => {
+  const { copy } = await c.req.json().catch(() => ({}));
+  const latest = await latestMonth(c.env);
+  const next = shiftMonthStr(latest, 1);
+  await c.env.DB.prepare("INSERT OR IGNORE INTO months (month) VALUES (?)")
+    .bind(next)
+    .run();
+  if (copy) {
+    await c.env.DB.prepare(
+      `INSERT INTO budgets (category, month, amount)
+       SELECT category, ?, amount FROM budgets WHERE month = ?
+       ON CONFLICT (category, month) DO UPDATE SET amount = excluded.amount`
+    )
+      .bind(next, latest)
+      .run();
+  }
+  return c.json({ ok: true, month: next });
 });
 
 // Point every connected bank's webhook at this deployment's URL.

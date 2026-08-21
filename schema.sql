@@ -43,6 +43,11 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
   keys_json TEXT NOT NULL
 );
 
+-- Months explicitly set up ahead of the real calendar month (see 003_months.sql)
+CREATE TABLE IF NOT EXISTS months (
+  month TEXT PRIMARY KEY
+);
+
 -- Default categories (swap these for your Tiller list any time)
 INSERT OR IGNORE INTO categories (name, kind, sort_order) VALUES
   ('Groceries', 'expense', 1),
