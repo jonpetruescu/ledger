@@ -723,38 +723,62 @@ async function renderPlan() {
       ${incB ? `<div style="display: flex; justify-content: space-between; font-size: 13px; color: var(--muted)"><span>Unallocated (to savings)</span><span class="mono" style="color: var(--green)">$${fmtInt(incB - alloc)}</span></div>` : ""}`;
   };
 
-  const startRename = (c, nameBtn) => {
-    const wrap = document.createElement("div");
-    wrap.className = "renamewrap";
+  const openEditModal = (c) => {
+    document.querySelectorAll("dialog.editdlg").forEach((d) => d.remove());
+    const dlg = document.createElement("dialog");
+    dlg.className = "editdlg";
+    document.body.appendChild(dlg);
+    dlg.addEventListener("close", () => dlg.remove());
+
+    const title = document.createElement("strong");
+    title.className = "serif";
+    title.style.cssText = "font-size: 20px; display: block";
+    title.textContent = "Edit budget";
+    dlg.appendChild(title);
+
     const nameIn = document.createElement("input");
-    nameIn.className = "renamein";
     nameIn.value = c.name;
+    nameIn.placeholder = "Name";
+    dlg.appendChild(nameIn);
+
     const groupPicker = makeGroupPicker(c.group_name || "");
-    const ok = document.createElement("button");
-    ok.className = "step";
-    ok.textContent = "✓";
-    ok.onclick = async () => {
+    groupPicker.style.margin = "0 0 12px";
+    dlg.appendChild(groupPicker);
+
+    const err = document.createElement("div");
+    err.className = "err";
+    dlg.appendChild(err);
+
+    const row = document.createElement("div");
+    row.className = "btnrow";
+    const save = document.createElement("button");
+    save.className = "btn grow";
+    save.textContent = "Save";
+    save.onclick = async () => {
       const newName = nameIn.value.trim();
       if (!newName) return;
+      save.textContent = "Saving…";
       const r = await api(`/categories/${encodeURIComponent(c.name)}`, {
         method: "PUT",
         body: JSON.stringify({ name: newName, group_name: groupPicker.getValue() || null }),
       });
       if (r.error) {
-        alert(r.error);
+        err.textContent = r.error;
+        save.textContent = "Save";
         return;
       }
+      dlg.close();
       renderPlan();
     };
     const cancel = document.createElement("button");
-    cancel.className = "step";
-    cancel.textContent = "×";
-    cancel.onclick = () => wrap.replaceWith(nameBtn);
-    wrap.appendChild(nameIn);
-    wrap.appendChild(groupPicker);
-    wrap.appendChild(ok);
-    wrap.appendChild(cancel);
-    nameBtn.replaceWith(wrap);
+    cancel.className = "btn ghost";
+    cancel.textContent = "Cancel";
+    cancel.onclick = () => dlg.close();
+    row.appendChild(save);
+    row.appendChild(cancel);
+    dlg.appendChild(row);
+
+    dlg.showModal();
     nameIn.focus();
   };
 
@@ -766,7 +790,7 @@ async function renderPlan() {
     nameBtn.type = "button";
     nameBtn.className = "name";
     nameBtn.textContent = c.name;
-    nameBtn.onclick = () => startRename(c, nameBtn);
+    nameBtn.onclick = () => openEditModal(c);
     row.appendChild(nameBtn);
     const minus = document.createElement("button");
     minus.className = "step";
