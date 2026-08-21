@@ -582,11 +582,67 @@ async function renderPlan() {
   title.textContent = "Set budgets — " + monthLabel(MONTH);
   v.appendChild(title);
 
-  const datalist = document.createElement("datalist");
-  datalist.id = "groupNames";
-  const allGroups = [...new Set(ov.categories.map((c) => c.group_name).filter(Boolean))];
-  datalist.innerHTML = allGroups.map((g) => `<option value="${esc(g)}">`).join("");
-  v.appendChild(datalist);
+  const allGroups = [...new Set(ov.categories.map((c) => c.group_name).filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b)
+  );
+
+  // A group <select> (existing groups + "No group" + "+ New group…"), with
+  // a text input that appears only when creating a brand-new group name —
+  // picking from the list is one tap and can't typo into a near-duplicate.
+  const makeGroupPicker = (selected) => {
+    const wrap = document.createElement("div");
+    wrap.className = "groupselwrap";
+    let value = selected || "";
+    const sel = document.createElement("select");
+    sel.className = "catselect";
+    const noneOpt = document.createElement("option");
+    noneOpt.value = "";
+    noneOpt.textContent = "No group";
+    sel.appendChild(noneOpt);
+    for (const g of allGroups) {
+      const opt = document.createElement("option");
+      opt.value = g;
+      opt.textContent = g;
+      sel.appendChild(opt);
+    }
+    const newOpt = document.createElement("option");
+    newOpt.value = "__new__";
+    newOpt.textContent = "+ New group…";
+    sel.appendChild(newOpt);
+
+    const customIn = document.createElement("input");
+    customIn.className = "amtin";
+    customIn.style.cssText = "display: none; width: 130px";
+    customIn.placeholder = "New group name";
+
+    if (selected && !allGroups.includes(selected)) {
+      sel.value = "__new__";
+      customIn.style.display = "";
+      customIn.value = selected;
+    } else {
+      sel.value = selected || "";
+    }
+
+    sel.onchange = () => {
+      if (sel.value === "__new__") {
+        customIn.style.display = "";
+        customIn.value = "";
+        customIn.focus();
+        value = "";
+      } else {
+        customIn.style.display = "none";
+        value = sel.value;
+      }
+    };
+    customIn.oninput = () => {
+      value = customIn.value.trim();
+    };
+
+    wrap.appendChild(sel);
+    wrap.appendChild(customIn);
+    wrap.getValue = () => value;
+    return wrap;
+  };
 
   const topRow = document.createElement("div");
   topRow.style.cssText = "display: flex; gap: 8px; margin-top: 14px; align-items: center; flex-wrap: wrap";
@@ -610,11 +666,7 @@ async function renderPlan() {
     nameInput.className = "amtin";
     nameInput.style.width = "120px";
     nameInput.placeholder = "Name";
-    const groupInput = document.createElement("input");
-    groupInput.className = "amtin";
-    groupInput.style.width = "120px";
-    groupInput.placeholder = "Group (optional)";
-    groupInput.setAttribute("list", "groupNames");
+    const groupPicker = makeGroupPicker("");
     let kind = "expense";
     const kindWrap = document.createElement("div");
     kindWrap.style.cssText = "display: flex; gap: 4px";
@@ -639,7 +691,7 @@ async function renderPlan() {
       confirmBtn.textContent = "Adding…";
       const r = await api("/categories", {
         method: "POST",
-        body: JSON.stringify({ name, kind, group_name: groupInput.value.trim() || undefined }),
+        body: JSON.stringify({ name, kind, group_name: groupPicker.getValue() || undefined }),
       });
       if (r.error) {
         alert(r.error);
@@ -649,7 +701,7 @@ async function renderPlan() {
       renderPlan();
     };
     topRow.appendChild(nameInput);
-    topRow.appendChild(groupInput);
+    topRow.appendChild(groupPicker);
     topRow.appendChild(kindWrap);
     topRow.appendChild(confirmBtn);
     nameInput.focus();
@@ -677,11 +729,7 @@ async function renderPlan() {
     const nameIn = document.createElement("input");
     nameIn.className = "renamein";
     nameIn.value = c.name;
-    const groupIn = document.createElement("input");
-    groupIn.className = "renamein";
-    groupIn.placeholder = "Group (optional)";
-    groupIn.value = c.group_name || "";
-    groupIn.setAttribute("list", "groupNames");
+    const groupPicker = makeGroupPicker(c.group_name || "");
     const ok = document.createElement("button");
     ok.className = "step";
     ok.textContent = "✓";
@@ -690,7 +738,7 @@ async function renderPlan() {
       if (!newName) return;
       const r = await api(`/categories/${encodeURIComponent(c.name)}`, {
         method: "PUT",
-        body: JSON.stringify({ name: newName, group_name: groupIn.value.trim() || null }),
+        body: JSON.stringify({ name: newName, group_name: groupPicker.getValue() || null }),
       });
       if (r.error) {
         alert(r.error);
@@ -703,7 +751,7 @@ async function renderPlan() {
     cancel.textContent = "×";
     cancel.onclick = () => wrap.replaceWith(nameBtn);
     wrap.appendChild(nameIn);
-    wrap.appendChild(groupIn);
+    wrap.appendChild(groupPicker);
     wrap.appendChild(ok);
     wrap.appendChild(cancel);
     nameBtn.replaceWith(wrap);
@@ -787,14 +835,26 @@ async function renderPlan() {
       if (c.group_name) (groups[c.group_name] ||= []).push(c);
       else ungrouped.push(c);
     }
-    for (const g of Object.keys(groups).sort((a, b) => a.localeCompare(b))) {
+    const groupNames = Object.keys(groups).sort((a, b) => a.localeCompare(b));
+    for (const g of groupNames) {
+      const box = document.createElement("div");
+      box.className = "groupbox";
       const gh = document.createElement("div");
       gh.className = "grouphead";
       gh.textContent = g;
-      v.appendChild(gh);
-      for (const c of groups[g]) v.appendChild(mkRow(c, step));
+      box.appendChild(gh);
+      for (const c of groups[g]) box.appendChild(mkRow(c, step));
+      v.appendChild(box);
     }
-    for (const c of ungrouped) v.appendChild(mkRow(c, step));
+    if (ungrouped.length) {
+      if (groupNames.length) {
+        const uh = document.createElement("div");
+        uh.className = "grouphead ungrouped";
+        uh.textContent = "Ungrouped";
+        v.appendChild(uh);
+      }
+      for (const c of ungrouped) v.appendChild(mkRow(c, step));
+    }
   };
 
   renderKindSection("Expected income", d.income, 100);
