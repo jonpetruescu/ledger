@@ -1008,7 +1008,8 @@ async function renderPlan() {
 
     const groups = {};
     const ungrouped = [];
-    for (const c of cats) {
+    const sorted = [...cats].sort((a, b) => a.name.localeCompare(b.name));
+    for (const c of sorted) {
       if (c.group_name) (groups[c.group_name] ||= []).push(c);
       else ungrouped.push(c);
     }
