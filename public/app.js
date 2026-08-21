@@ -255,15 +255,15 @@ function registerRow(t, cats, onDone, catColor) {
   row.className = "rrow";
   const isSplitLine = t.split_id != null;
   const auto = t.categorized_by === "rule" ? " · rule" : "";
-  let subtitle;
-  if (isSplitLine) {
-    subtitle = `${esc(t.category || "")}${t.description ? " · " + esc(t.description) : ""}`;
-  } else {
-    subtitle = `${esc(t.category || "")}${auto}`;
-  }
+  // A named split shows its own description as the line's name instead of
+  // the original merchant, so "Costco" split into "Groceries part" and
+  // "Household part" reads as two distinctly-named lines, not one
+  // merchant name with the description tacked on after the category.
+  const displayName = isSplitLine && t.description ? t.description : t.merchant || "(no name)";
+  const subtitle = isSplitLine ? esc(t.category || "") : `${esc(t.category || "")}${auto}`;
   row.innerHTML = `
     <span class="d mono">${fmtDay(t.date)}</span>
-    <span class="who"><span class="m">${esc(t.merchant || "(no name)")}</span>
+    <span class="who"><span class="m">${esc(displayName)}</span>
       <span class="c" style="${catColor ? "" : ""}">${subtitle}</span></span>
     <span class="amt mono ${t.amount < 0 ? "in" : ""}">$${fmtAmt(t.amount)}</span>`;
   row.onclick = () => {
