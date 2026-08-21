@@ -240,7 +240,7 @@ function fileCard(t, cats, onDone) {
   actions.style.cssText = "display: flex; gap: 8px; align-items: center; margin-top: 8px";
   const splitBtn = document.createElement("button");
   splitBtn.className = "btn ghost";
-  splitBtn.textContent = t.categorized_by === "split" ? `Split · ${t.splits?.length || ""} ways`.replace("  ", " ") : "Split";
+  splitBtn.textContent = "Split";
   splitBtn.onclick = () => openSplitModal(t.tx_id, cats, onDone);
   actions.appendChild(sel);
   actions.appendChild(splitBtn);
@@ -258,8 +258,6 @@ function registerRow(t, cats, onDone, catColor) {
   let subtitle;
   if (isSplitLine) {
     subtitle = `${esc(t.category || "")}${t.description ? " · " + esc(t.description) : ""}`;
-  } else if (t.categorized_by === "split") {
-    subtitle = `Split · ${t.splits ? t.splits.length : ""} ways`;
   } else {
     subtitle = `${esc(t.category || "")}${auto}`;
   }
@@ -585,7 +583,7 @@ async function renderTx() {
   lbl2.className = "lbl datehead";
   lbl2.textContent = "Filed";
   v.appendChild(lbl2);
-  const withCat = filed.filter((t) => t.category || t.categorized_by === "split");
+  const withCat = filed.filter((t) => t.category);
   if (!withCat.length) {
     const e = document.createElement("div");
     e.className = "empty";

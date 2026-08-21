@@ -431,22 +431,43 @@ app.get("/api/transactions", async (c) => {
     .bind(...binds)
     .all();
 
-  // Attach each split-filed transaction's breakdown so the UI can show
-  // "Split · N ways" instead of a blank category.
+  // A split-filed transaction shows up as one row per split — its own
+  // portion, category, and description — instead of a single row for the
+  // whole original amount.
   const splitTxIds = rows.results.filter((t) => t.categorized_by === "split").map((t) => t.tx_id);
+  let splitsByTx = {};
   if (splitTxIds.length) {
     const placeholders = splitTxIds.map(() => "?").join(",");
     const splitsForIds = await c.env.DB.prepare(
-      `SELECT tx_id, category, amount, description FROM splits WHERE tx_id IN (${placeholders})`
+      `SELECT tx_id, id, category, amount, description FROM splits WHERE tx_id IN (${placeholders}) ORDER BY id`
     )
       .bind(...splitTxIds)
       .all();
-    const byTx = {};
-    for (const s of splitsForIds.results) (byTx[s.tx_id] ||= []).push(s);
-    for (const t of rows.results) if (byTx[t.tx_id]) t.splits = byTx[t.tx_id];
+    for (const s of splitsForIds.results) (splitsByTx[s.tx_id] ||= []).push(s);
   }
 
-  return c.json(rows.results);
+  const expanded = [];
+  for (const t of rows.results) {
+    const splits = splitsByTx[t.tx_id];
+    if (t.categorized_by === "split" && splits) {
+      for (const s of splits) {
+        expanded.push({
+          tx_id: t.tx_id,
+          date: t.date,
+          merchant: t.merchant,
+          amount: s.amount,
+          category: s.category,
+          categorized_by: "split",
+          split_id: s.id,
+          description: s.description,
+        });
+      }
+    } else {
+      expanded.push(t);
+    }
+  }
+
+  return c.json(expanded);
 });
 
 // Fetch a transaction plus its splits (if any), for the split editor.
