@@ -124,6 +124,7 @@ const ICONS = {
   sliders: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M4 8h16M4 16h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="9" cy="8" r="2.4" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="15" cy="16" r="2.4" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>',
   back: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M15 5l-7 7 7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   check: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><path d="M8 12.5l2.6 2.6L16 9.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  split: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M4 20L12 12V4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 12L20 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M15 4h5v5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
 };
 
 const TABS = [
@@ -292,10 +293,47 @@ function openSplitModal(txId, cats, onDone) {
   });
 }
 
+// A labeled field: label above, input/select below, optional $ prefix and
+// an × to clear the value — matches native-app form conventions.
+function splitField(labelText, control, { prefix, clearable } = {}) {
+  const wrap = document.createElement("div");
+  wrap.className = "splitfield";
+  const lbl = document.createElement("div");
+  lbl.className = "splitfieldlbl";
+  lbl.textContent = labelText;
+  wrap.appendChild(lbl);
+
+  const inputWrap = document.createElement("div");
+  inputWrap.className = "splitinputwrap";
+  if (prefix) {
+    const pre = document.createElement("span");
+    pre.className = "splitprefix";
+    pre.textContent = prefix;
+    inputWrap.appendChild(pre);
+    control.classList.add("has-prefix");
+  }
+  inputWrap.appendChild(control);
+  if (clearable) {
+    const clear = document.createElement("button");
+    clear.type = "button";
+    clear.className = "splitclear";
+    clear.textContent = "×";
+    clear.tabIndex = -1;
+    clear.onclick = () => {
+      control.value = "";
+      control.dispatchEvent(new Event("input", { bubbles: true }));
+      control.focus();
+    };
+    inputWrap.appendChild(clear);
+  }
+  wrap.appendChild(inputWrap);
+  return wrap;
+}
+
 function renderSplitForm(dlg, tx, existingSplits, cats, onDone) {
   const rows = existingSplits.length
     ? existingSplits.map((s) => ({ amount: s.amount, description: s.description || "", category: s.category }))
-    : [{ amount: 0, description: "", category: "" }];
+    : [{ amount: tx.amount, description: "", category: "" }];
 
   dlg.innerHTML = "";
 
@@ -303,8 +341,11 @@ function renderSplitForm(dlg, tx, existingSplits, cats, onDone) {
   head.className = "splithead";
   head.innerHTML = `
     <div>
-      <strong class="serif" style="font-size: 20px">${esc(tx.merchant || "(no name)")}</strong>
-      <div class="lbl">${fmtDay(tx.date)} · total $${fmtAmt(tx.amount)}</div>
+      <div style="display: flex; align-items: center; gap: 8px">
+        ${ICONS.split}
+        <strong class="serif" style="font-size: 20px">Split Transaction</strong>
+      </div>
+      <div class="lbl" style="margin-top: 4px">${fmtDay(tx.date)} · ${esc(tx.merchant || "(no name)")} · Original amount: $${fmtAmt(tx.amount)}</div>
     </div>`;
   const close = document.createElement("button");
   close.className = "step";
@@ -319,8 +360,8 @@ function renderSplitForm(dlg, tx, existingSplits, cats, onDone) {
 
   const addBtn = document.createElement("button");
   addBtn.className = "btn ghost";
-  addBtn.style.margin = "10px 0";
-  addBtn.textContent = "+ Add a split";
+  addBtn.style.cssText = "margin: 10px 0; width: 100%";
+  addBtn.textContent = "+ Add split";
   dlg.appendChild(addBtn);
 
   const footer = document.createElement("div");
@@ -333,19 +374,50 @@ function renderSplitForm(dlg, tx, existingSplits, cats, onDone) {
     const assigned = assignedTotal();
     const remaining = tx.amount - assigned;
     footer.innerHTML = `
-      <div class="splitrow-sum"><span>Assigned</span><span class="mono">$${fmt2(assigned)}</span></div>
-      <div class="splitrow-sum"><span>Remaining</span><span class="mono" style="color: ${Math.abs(remaining) > 0.005 ? "var(--over)" : "var(--green)"}">$${fmt2(remaining)}</span></div>`;
+      <div class="splitfoot-grid">
+        <div><div class="splitfieldlbl">Assigned</div><div class="mono" style="font-size: 20px">$${fmt2(assigned)}</div></div>
+        <div><div class="splitfieldlbl">Remaining</div><div class="mono" style="font-size: 20px; color: ${Math.abs(remaining) > 0.005 ? "var(--over)" : "var(--green)"}">$${fmt2(remaining)}</div></div>
+      </div>
+      <div class="err" id="splitErr"></div>`;
+    const row = document.createElement("div");
+    row.className = "btnrow";
+    row.style.marginTop = "6px";
+    const cancel = document.createElement("button");
+    cancel.className = "btn ghost grow";
+    cancel.textContent = "Cancel";
+    cancel.onclick = () => dlg.close();
     const save = document.createElement("button");
     save.className = "btn grow";
-    save.style.marginTop = "10px";
-    save.textContent = "Save split";
-    save.onclick = saveSplit;
-    footer.appendChild(save);
+    save.textContent = "Save Splits";
+    save.onclick = () => saveSplit(save);
+    row.appendChild(cancel);
+    row.appendChild(save);
+    footer.appendChild(row);
   };
 
-  const buildRow = (r) => {
-    const rw = document.createElement("div");
-    rw.className = "splitentry";
+  const buildCard = (r) => {
+    const card = document.createElement("div");
+    card.className = "splitcard";
+
+    const amtIn = document.createElement("input");
+    amtIn.className = "amtin mono";
+    amtIn.type = "text";
+    amtIn.inputMode = "decimal";
+    amtIn.placeholder = "0.00";
+    amtIn.value = r.amount ? fmt2(r.amount) : "";
+    amtIn.oninput = () => {
+      r.amount = parseFloat(amtIn.value.replace(/[^0-9.]/g, "")) || 0;
+      updateFooter();
+    };
+    card.appendChild(splitField("Amount", amtIn, { prefix: "$", clearable: true }));
+
+    const descIn = document.createElement("input");
+    descIn.placeholder = "What was this for?";
+    descIn.value = r.description;
+    descIn.oninput = () => {
+      r.description = descIn.value;
+    };
+    card.appendChild(splitField("Description", descIn, { clearable: true }));
 
     const sel = categorySelect(
       cats,
@@ -354,70 +426,60 @@ function renderSplitForm(dlg, tx, existingSplits, cats, onDone) {
       },
       r.category
     );
-    const rm = document.createElement("button");
-    rm.className = "step";
-    rm.textContent = "×";
-    rm.title = "Remove this split";
-    rm.onclick = () => {
-      const i = rows.indexOf(r);
-      if (i >= 0) rows.splice(i, 1);
-      rw.remove();
-      updateFooter();
-    };
-    const row1 = document.createElement("div");
-    row1.className = "splitentry-row";
-    row1.appendChild(sel);
-    row1.appendChild(rm);
+    card.appendChild(splitField("Category", sel));
 
-    const amtIn = document.createElement("input");
-    amtIn.className = "amtin mono";
-    amtIn.type = "text";
-    amtIn.inputMode = "decimal";
-    amtIn.placeholder = "0";
-    amtIn.value = r.amount ? fmt2(r.amount) : "";
-    amtIn.oninput = () => {
-      r.amount = parseFloat(amtIn.value.replace(/[^0-9.]/g, "")) || 0;
-      updateFooter();
-    };
+    if (rows.length > 1) {
+      const rm = document.createElement("button");
+      rm.type = "button";
+      rm.className = "splitremove";
+      rm.textContent = "Remove this split";
+      rm.onclick = () => {
+        const i = rows.indexOf(r);
+        if (i >= 0) rows.splice(i, 1);
+        card.remove();
+        updateFooter();
+      };
+      card.appendChild(rm);
+    }
 
-    const descIn = document.createElement("input");
-    descIn.className = "splitdesc";
-    descIn.placeholder = "Description (optional)";
-    descIn.value = r.description;
-    descIn.oninput = () => {
-      r.description = descIn.value;
-    };
-    const row2 = document.createElement("div");
-    row2.className = "splitentry-row";
-    row2.appendChild(amtIn);
-    row2.appendChild(descIn);
-
-    rw.appendChild(row1);
-    rw.appendChild(row2);
-    list.appendChild(rw);
+    list.appendChild(card);
   };
 
-  rows.forEach(buildRow);
+  const rebuildList = () => {
+    list.innerHTML = "";
+    rows.forEach(buildCard);
+  };
+
+  rebuildList();
   updateFooter();
 
   addBtn.onclick = () => {
     const remaining = tx.amount - assignedTotal();
-    const nr = { amount: remaining, description: "", category: "" };
-    rows.push(nr);
-    buildRow(nr);
+    rows.push({ amount: Math.max(0, remaining), description: "", category: "" });
+    rebuildList();
     updateFooter();
   };
 
-  async function saveSplit() {
+  async function saveSplit(saveBtn) {
+    const errEl = footer.querySelector("#splitErr");
     const payload = rows
       .filter((r) => r.category && Number(r.amount))
       .map((r) => ({ amount: Number(r.amount), description: r.description, category: r.category }));
-    await api(`/transactions/${tx.tx_id}/splits`, {
-      method: "POST",
-      body: JSON.stringify({ splits: payload }),
-    });
-    dlg.close();
-    onDone();
+    saveBtn.disabled = true;
+    saveBtn.textContent = "Saving…";
+    try {
+      const r = await api(`/transactions/${tx.tx_id}/splits`, {
+        method: "POST",
+        body: JSON.stringify({ splits: payload }),
+      });
+      if (r?.error) throw new Error(r.error);
+      dlg.close();
+      onDone();
+    } catch (e) {
+      if (errEl) errEl.textContent = "Couldn't save — check your connection and try again.";
+      saveBtn.disabled = false;
+      saveBtn.textContent = "Save Splits";
+    }
   }
 }
 
