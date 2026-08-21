@@ -844,7 +844,7 @@ async function renderPlan() {
     nameIn.focus();
   };
 
-  const mkRow = (c, step) => {
+  const mkRow = (c) => {
     const cur = d.budget[c.name] || 0;
     const row = document.createElement("div");
     row.className = "srow";
@@ -854,18 +854,12 @@ async function renderPlan() {
     nameBtn.textContent = c.name;
     nameBtn.onclick = () => openEditModal(c);
     row.appendChild(nameBtn);
-    const minus = document.createElement("button");
-    minus.className = "step";
-    minus.textContent = "−";
     const input = document.createElement("input");
     input.className = "amtin mono";
     input.type = "text";
     input.inputMode = "numeric";
     input.value = cur ? fmtInt(cur) : "";
     input.placeholder = "0";
-    const plus = document.createElement("button");
-    plus.className = "step";
-    plus.textContent = "+";
     const del = document.createElement("button");
     del.className = "step";
     del.textContent = "×";
@@ -885,31 +879,19 @@ async function renderPlan() {
         });
       }, 500);
     };
-    const setVal = (n) => {
-      n = Math.max(0, n);
-      edits[c.name] = n;
-      input.value = n ? fmtInt(n) : "";
-      updateSummary();
-      scheduleSave(n);
-    };
-    const val = () => edits[c.name] ?? cur;
-    minus.onclick = () => setVal(val() - step);
-    plus.onclick = () => setVal(val() + step);
     input.oninput = () => {
       const n = Number(input.value.replace(/[^0-9.]/g, "")) || 0;
       edits[c.name] = n;
       updateSummary();
       scheduleSave(n);
     };
-    row.appendChild(minus);
     row.appendChild(input);
-    row.appendChild(plus);
     row.appendChild(del);
     return row;
   };
 
   // Categories in a kind, clustered under any group they belong to.
-  const renderKindSection = (label, cats, step) => {
+  const renderKindSection = (label, cats) => {
     const lbl = document.createElement("div");
     lbl.className = "lbl datehead";
     lbl.textContent = label;
@@ -929,7 +911,7 @@ async function renderPlan() {
       gh.className = "grouphead";
       gh.textContent = g;
       box.appendChild(gh);
-      for (const c of groups[g]) box.appendChild(mkRow(c, step));
+      for (const c of groups[g]) box.appendChild(mkRow(c));
       v.appendChild(box);
     }
     if (ungrouped.length) {
@@ -939,13 +921,13 @@ async function renderPlan() {
         uh.textContent = "Ungrouped";
         v.appendChild(uh);
       }
-      for (const c of ungrouped) v.appendChild(mkRow(c, step));
+      for (const c of ungrouped) v.appendChild(mkRow(c));
     }
   };
 
-  renderKindSection("Expected income", d.income, 100);
-  renderKindSection("Monthly budgets", d.expense, 10);
-  renderKindSection("Transfers — not counted in totals", d.transfer, 10);
+  renderKindSection("Expected income", d.income);
+  renderKindSection("Monthly budgets", d.expense);
+  renderKindSection("Transfers — not counted in totals", d.transfer);
 
   updateSummary();
 }
