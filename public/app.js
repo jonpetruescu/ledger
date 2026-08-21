@@ -257,12 +257,27 @@ function fmt2(n) {
 }
 
 function openSplitModal(txId, cats, onDone) {
+  // Guard against a double-tap opening two stacked dialogs.
+  document.querySelectorAll("dialog.splitdlg").forEach((d) => d.remove());
+
   const dlg = document.createElement("dialog");
   dlg.className = "splitdlg";
   dlg.innerHTML = '<div class="empty">Loading…</div>';
   document.body.appendChild(dlg);
   dlg.addEventListener("close", () => dlg.remove());
   dlg.showModal();
+
+  // On mobile, the on-screen keyboard shrinks the visual viewport but not
+  // the layout viewport a <dialog> sizes against, which can push the fixed
+  // Assigned/Remaining/Save footer out of reach. Track it explicitly.
+  if (window.visualViewport) {
+    const fit = () => {
+      dlg.style.maxHeight = window.visualViewport.height * 0.92 + "px";
+    };
+    fit();
+    window.visualViewport.addEventListener("resize", fit);
+    dlg.addEventListener("close", () => window.visualViewport.removeEventListener("resize", fit));
+  }
 
   api(`/transactions/${txId}/splits`).then((data) => {
     if (data.error) {
@@ -327,6 +342,29 @@ function renderSplitForm(dlg, tx, existingSplits, cats, onDone) {
   const buildRow = (r) => {
     const rw = document.createElement("div");
     rw.className = "splitentry";
+
+    const sel = categorySelect(
+      cats,
+      (name) => {
+        r.category = name;
+      },
+      r.category
+    );
+    const rm = document.createElement("button");
+    rm.className = "step";
+    rm.textContent = "×";
+    rm.title = "Remove this split";
+    rm.onclick = () => {
+      const i = rows.indexOf(r);
+      if (i >= 0) rows.splice(i, 1);
+      rw.remove();
+      updateFooter();
+    };
+    const row1 = document.createElement("div");
+    row1.className = "splitentry-row";
+    row1.appendChild(sel);
+    row1.appendChild(rm);
+
     const amtIn = document.createElement("input");
     amtIn.className = "amtin mono";
     amtIn.type = "text";
@@ -345,30 +383,13 @@ function renderSplitForm(dlg, tx, existingSplits, cats, onDone) {
     descIn.oninput = () => {
       r.description = descIn.value;
     };
+    const row2 = document.createElement("div");
+    row2.className = "splitentry-row";
+    row2.appendChild(amtIn);
+    row2.appendChild(descIn);
 
-    const sel = categorySelect(
-      cats,
-      (name) => {
-        r.category = name;
-      },
-      r.category
-    );
-
-    const rm = document.createElement("button");
-    rm.className = "step";
-    rm.textContent = "×";
-    rm.title = "Remove this split";
-    rm.onclick = () => {
-      const i = rows.indexOf(r);
-      if (i >= 0) rows.splice(i, 1);
-      rw.remove();
-      updateFooter();
-    };
-
-    rw.appendChild(amtIn);
-    rw.appendChild(descIn);
-    rw.appendChild(sel);
-    rw.appendChild(rm);
+    rw.appendChild(row1);
+    rw.appendChild(row2);
     list.appendChild(rw);
   };
 

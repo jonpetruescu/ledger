@@ -155,23 +155,28 @@
 
   .catselect {
     padding: 10px; border: 1px solid var(--line2); border-radius: 3px;
-    background: var(--bg); color: var(--ink); font-size: 14px; flex: 1; min-width: 0;
+    background: var(--bg); color: var(--ink); font-size: 16px; flex: 1; min-width: 0;
   }
 
   dialog.splitdlg {
-    width: min(94vw, 480px); max-height: 85vh; display: flex; flex-direction: column;
+    width: min(96vw, 520px); max-height: min(88vh, 680px); padding: 16px;
+    display: flex; flex-direction: column;
   }
   .splithead { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
-  .splitlist { overflow-y: auto; flex: 1; margin-top: 10px; display: flex; flex-direction: column; gap: 10px; }
-  .splitentry { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; border-bottom: 1px solid var(--line); padding-bottom: 10px; }
+  .splitlist { overflow-y: auto; flex: 1; margin-top: 12px; display: flex; flex-direction: column; gap: 14px; -webkit-overflow-scrolling: touch; }
+  .splitentry { display: flex; flex-direction: column; gap: 8px; border-bottom: 1px solid var(--line); padding-bottom: 14px; }
+  .splitentry-row { display: flex; gap: 8px; align-items: center; }
   .splitentry input { margin: 0; }
-  .splitentry .amtin { width: 84px; }
+  .splitentry .amtin { width: 100px; flex-shrink: 0; }
   .splitentry input.splitdesc {
-    width: auto; flex: 1; min-width: 100px; padding: 9px 10px; font-size: 14px;
+    width: auto; flex: 1; min-width: 0; padding: 11px 10px; font-size: 16px;
     border: 1px solid var(--line2); border-radius: 3px; background: var(--bg); color: var(--ink);
   }
-  .splitfoot { border-top: 1px solid var(--line2); padding-top: 10px; margin-top: 8px; }
-  .splitrow-sum { display: flex; justify-content: space-between; font-size: 14px; padding: 3px 0; }
+  .splitfoot {
+    border-top: 1px solid var(--line2); padding-top: 12px; margin-top: 10px;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .splitrow-sum { display: flex; justify-content: space-between; font-size: 15px; padding: 4px 0; }
 </style>
 </head>
 <body>
