@@ -443,11 +443,12 @@ function renderSplitForm(dlg, tx, existingSplits, cats, onDone) {
     }
 
     list.appendChild(card);
+    return card;
   };
 
   const rebuildList = () => {
     list.innerHTML = "";
-    rows.forEach(buildCard);
+    return rows.map(buildCard);
   };
 
   rebuildList();
@@ -456,8 +457,14 @@ function renderSplitForm(dlg, tx, existingSplits, cats, onDone) {
   addBtn.onclick = () => {
     const remaining = tx.amount - assignedTotal();
     rows.push({ amount: Math.max(0, remaining), description: "", category: "" });
-    rebuildList();
+    const cards = rebuildList();
     updateFooter();
+    // Assigned/Remaining often don't change (a fresh split starts at $0
+    // once everything else is already allocated), so without this the
+    // new card can look like the tap did nothing.
+    const newCard = cards[cards.length - 1];
+    newCard.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    newCard.querySelector(".amtin")?.focus();
   };
 
   async function saveSplit(saveBtn) {
