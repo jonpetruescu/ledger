@@ -477,11 +477,22 @@ async function renderPlan() {
       await api(`/categories/${encodeURIComponent(c.name)}`, { method: "DELETE" });
       renderPlan();
     };
+    let saveTimer = null;
+    const scheduleSave = (amount) => {
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(() => {
+        api("/budgets", {
+          method: "POST",
+          body: JSON.stringify({ month: MONTH, budgets: [{ category: c.name, amount }] }),
+        });
+      }, 500);
+    };
     const setVal = (n) => {
       n = Math.max(0, n);
       edits[c.name] = n;
       input.value = n ? fmtInt(n) : "";
       updateSummary();
+      scheduleSave(n);
     };
     const val = () => edits[c.name] ?? cur;
     minus.onclick = () => setVal(val() - step);
@@ -490,6 +501,7 @@ async function renderPlan() {
       const n = Number(input.value.replace(/[^0-9.]/g, "")) || 0;
       edits[c.name] = n;
       updateSummary();
+      scheduleSave(n);
     };
     row.appendChild(minus);
     row.appendChild(input);
@@ -522,25 +534,13 @@ async function renderPlan() {
   const row = document.createElement("div");
   row.className = "btnrow";
   row.style.marginTop = "14px";
-  const save = document.createElement("button");
-  save.className = "btn grow";
-  save.textContent = "Save budgets";
-  save.onclick = async () => {
-    save.textContent = "Saving…";
-    const budgets = Object.entries(edits).map(([category, amount]) => ({ category, amount }));
-    if (budgets.length) {
-      await api("/budgets", { method: "POST", body: JSON.stringify({ month: MONTH, budgets }) });
-    }
-    go({ name: MODE === "classic" ? "budget" : "env" });
-  };
   const copy = document.createElement("button");
-  copy.className = "btn ghost";
+  copy.className = "btn ghost grow";
   copy.textContent = "Copy last month";
   copy.onclick = async () => {
     await api("/budgets/copy", { method: "POST", body: JSON.stringify({ to: MONTH }) });
     renderPlan();
   };
-  row.appendChild(save);
   row.appendChild(copy);
   v.appendChild(row);
 }
